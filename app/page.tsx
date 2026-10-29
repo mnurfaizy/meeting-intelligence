@@ -6,26 +6,10 @@ import { MeetingView } from "@/components/MeetingView";
 import { RecordingView } from "@/components/RecordingView";
 import { Sidebar } from "@/components/Sidebar";
 import { EmptyState } from "@/components/ui";
-import { putAudio, putChunk, putMeeting } from "@/lib/db";
+import { putAudio, putMeeting } from "@/lib/db";
 import { useMeetings } from "@/lib/hooks";
 import { finalizeMeeting } from "@/lib/pipeline";
 import { useRecording } from "@/lib/useRecording";
-
-/** Imported files can report Infinity for WebM; 0 means "unknown" and is filled in later. */
-function probeDuration(file: Blob) {
-  return new Promise<number>((resolve) => {
-    const audio = document.createElement("audio");
-    const url = URL.createObjectURL(file);
-    const done = (ms: number) => {
-      URL.revokeObjectURL(url);
-      resolve(ms);
-    };
-    audio.preload = "metadata";
-    audio.onloadedmetadata = () => done(Number.isFinite(audio.duration) ? audio.duration * 1000 : 0);
-    audio.onerror = () => done(0);
-    audio.src = url;
-  });
-}
 
 export default function Home() {
   const meetings = useMeetings();
@@ -63,21 +47,19 @@ export default function Home() {
 
   const importFile = async (file: File) => {
     const id = crypto.randomUUID();
-    const mimeType = file.type || "audio/mpeg";
-    const durationMs = await probeDuration(file);
     await putMeeting({
       id,
       title: file.name.replace(/\.[^.]+$/, ""),
       createdAt: Date.now(),
-      durationMs,
+      durationMs: 0,
       source: "import",
       status: "processing",
       transcript: [],
       summaryStatus: "idle",
       chat: [],
     });
-    await putAudio({ meetingId: id, blob: file, mimeType });
-    await putChunk({ id: `${id}:0`, meetingId: id, index: 0, startMs: 0, durationMs, blob: file, mimeType, status: "pending" });
+    // AssemblyAI accepts the original file as-is (m4a, mp3, mp4, webm…), so no conversion is needed.
+    await putAudio({ meetingId: id, blob: file, mimeType: file.type || "audio/mpeg" });
     setSelected({ id, tab: "summary" });
     void finalizeMeeting(id);
   };

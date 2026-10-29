@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { putAudio, putChunk, putMeeting, updateMeeting } from "./db";
-import { finalizeMeeting, transcribePending } from "./pipeline";
+import { finalizeMeeting } from "./pipeline";
 import { TabRecorder } from "./recorder";
 
 export type RecordingState = {
@@ -59,11 +59,9 @@ export function useRecording(onError: (message: string) => void) {
       if (recorderRef.current) return null;
       const meetingId = crypto.randomUUID();
       const recorder = new TabRecorder({
+        // Saved as a safety net in case the tab closes before the full recording is stored.
         onChunk: (chunk) => {
-          const saved = putChunk({ ...chunk, id: `${meetingId}:${chunk.index}`, meetingId, status: "pending" });
-          pendingSaves.current.push(saved);
-          // Transcribe each 10-minute slice while the meeting is still going.
-          void saved.then(() => transcribePending(meetingId));
+          pendingSaves.current.push(putChunk({ ...chunk, id: `${meetingId}:${chunk.index}`, meetingId, status: "pending" }));
         },
         onAutoStop: () => void stopRef.current(),
       });

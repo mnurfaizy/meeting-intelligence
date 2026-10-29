@@ -3,14 +3,13 @@
 import { Download, FileText, RefreshCw, TriangleAlert } from "lucide-react";
 import { fmtClock, transcriptToText } from "@/lib/format";
 import { retranscribeMeeting } from "@/lib/pipeline";
-import type { Chunk, Meeting, Segment } from "@/lib/types";
+import type { Meeting, Segment } from "@/lib/types";
 import { CopyButton, EmptyState, IconButton, Spinner, downloadText } from "./ui";
 
 const SPEAKER_COLORS = ["text-teal-300", "text-amber-300", "text-sky-300", "text-rose-300", "text-violet-300", "text-lime-300"];
 
-export function TranscriptCard({ meeting, chunks, onSeek }: { meeting: Meeting; chunks: Chunk[]; onSeek: (sec: number) => void }) {
-  // While processing, show whatever parts are already done.
-  const segments = meeting.status === "ready" ? meeting.transcript : chunks.flatMap((c) => (c.status === "done" ? c.segments ?? [] : []));
+export function TranscriptCard({ meeting, onSeek }: { meeting: Meeting; onSeek: (sec: number) => void }) {
+  const segments = meeting.transcript;
   const text = transcriptToText(segments);
   const busy = meeting.status === "processing" || meeting.status === "recording";
 
@@ -26,7 +25,7 @@ export function TranscriptCard({ meeting, chunks, onSeek }: { meeting: Meeting; 
           <IconButton title="Download .txt" disabled={!segments.length} onClick={() => downloadText(`${meeting.title || "transcript"}.txt`, text)}>
             <Download className="size-4" />
           </IconButton>
-          <IconButton title="Transcribe again" disabled={busy || !chunks.length} onClick={() => void retranscribeMeeting(meeting.id)}>
+          <IconButton title="Transcribe again" disabled={busy} onClick={() => void retranscribeMeeting(meeting.id)}>
             <RefreshCw className="size-4" />
           </IconButton>
         </div>
@@ -36,25 +35,26 @@ export function TranscriptCard({ meeting, chunks, onSeek }: { meeting: Meeting; 
         {meeting.status === "error" ? (
           <EmptyState icon={<TriangleAlert className="size-8" />} title="The recording could not be transcribed" tone="error">
             <p>{meeting.error || "Something went wrong. Please try again."}</p>
-            {chunks.length > 0 && (
-              <button
-                type="button"
-                onClick={() => void retranscribeMeeting(meeting.id)}
-                className="mt-4 rounded-lg bg-accent px-4 py-2 font-medium text-white hover:bg-accent-hover"
-              >
-                Try again
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => void retranscribeMeeting(meeting.id)}
+              className="mt-4 rounded-lg bg-accent px-4 py-2 font-medium text-white hover:bg-accent-hover"
+            >
+              Try again
+            </button>
+          </EmptyState>
+        ) : meeting.status === "recording" ? (
+          <EmptyState icon={<Spinner className="size-6" />} title="Recording in progress">
+            The transcript is created when you stop the recording.
+          </EmptyState>
+        ) : busy ? (
+          <EmptyState icon={<Spinner className="size-6" />} title={meeting.phase === "uploading" ? "Uploading audio…" : "Transcribing…"}>
+            {meeting.phase === "uploading"
+              ? "Sending the recording to AssemblyAI."
+              : "Detecting speakers and language. This usually takes under a minute per hour of audio."}
           </EmptyState>
         ) : segments.length ? (
-          <>
-            {busy && <Progress chunks={chunks} />}
-            <TranscriptLines segments={segments} onSeek={onSeek} />
-          </>
-        ) : busy ? (
-          <EmptyState icon={<Spinner className="size-6" />} title={meeting.status === "recording" ? "Recording in progress" : "Transcribing…"}>
-            {meeting.status === "recording" ? "Each 10-minute part is transcribed while you record." : <ProgressText chunks={chunks} />}
-          </EmptyState>
+          <TranscriptLines segments={segments} onSeek={onSeek} />
         ) : (
           <EmptyState icon={<FileText className="size-6" />} title="No speech detected">
             The recording did not contain any speech that could be transcribed.
@@ -62,25 +62,6 @@ export function TranscriptCard({ meeting, chunks, onSeek }: { meeting: Meeting; 
         )}
       </div>
     </section>
-  );
-}
-
-function ProgressText({ chunks }: { chunks: Chunk[] }) {
-  const done = chunks.filter((c) => c.status === "done").length;
-  if (chunks.length <= 1) return <>This usually takes under a minute.</>;
-  return (
-    <>
-      Part {Math.min(done + 1, chunks.length)} of {chunks.length}…
-    </>
-  );
-}
-
-function Progress({ chunks }: { chunks: Chunk[] }) {
-  return (
-    <div className="sticky top-0 flex items-center gap-2 border-b border-line bg-panel/95 px-5 py-2 text-sm text-gray-400 backdrop-blur">
-      <Spinner className="size-3.5 text-accent-hover" />
-      Transcribing… <ProgressText chunks={chunks} />
-    </div>
   );
 }
 

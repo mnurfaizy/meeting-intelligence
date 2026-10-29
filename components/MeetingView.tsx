@@ -4,7 +4,7 @@ import { Download, Pencil, RefreshCw, Sparkles, Trash2, TriangleAlert } from "lu
 import { useRef, useState } from "react";
 import { deleteMeeting, updateMeeting } from "@/lib/db";
 import { fmtDateTime, fmtDuration } from "@/lib/format";
-import { useAudioUrl, useChunks } from "@/lib/hooks";
+import { useAudioUrl } from "@/lib/hooks";
 import { regenerateSummary } from "@/lib/pipeline";
 import type { Meeting } from "@/lib/types";
 import { AssistantPanel } from "./AssistantPanel";
@@ -14,7 +14,6 @@ import { CopyButton, EmptyState, IconButton, Spinner, downloadText } from "./ui"
 
 export function MeetingView({ meeting, initialTab, onDeleted }: { meeting: Meeting; initialTab: "summary" | "assistant"; onDeleted: () => void }) {
   const [tab, setTab] = useState(initialTab);
-  const chunks = useChunks(meeting.id);
   const audioRef = useRef<HTMLAudioElement>(null);
 
   const seek = (sec: number) => {
@@ -69,7 +68,7 @@ export function MeetingView({ meeting, initialTab, onDeleted }: { meeting: Meeti
 
         <div className="flex min-h-0 flex-col gap-3 xl:w-[460px] 2xl:w-[540px]">
           <AudioCard meeting={meeting} audioRef={audioRef} />
-          <TranscriptCard meeting={meeting} chunks={chunks} onSeek={seek} />
+          <TranscriptCard meeting={meeting} onSeek={seek} />
         </div>
       </div>
     </div>

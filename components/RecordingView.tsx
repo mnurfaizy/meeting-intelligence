@@ -74,15 +74,9 @@ export function RecordingView({
 
       <ol className="mt-6 flex w-full max-w-xl flex-wrap gap-2">
         {chunks.map((c) => (
-          <li key={c.id} className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-xs text-gray-400">
-            {c.status === "done" ? (
-              <Check className="size-3.5 text-accent-hover" />
-            ) : c.status === "error" ? (
-              <TriangleAlert className="size-3.5 text-red-400" />
-            ) : (
-              <Spinner className="size-3.5" />
-            )}
-            Part {c.index + 1}
+          <li key={c.id} className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-xs text-gray-400" title="Saved in this browser as a backup">
+            <Check className="size-3.5 text-accent-hover" />
+            Part {c.index + 1} saved
           </li>
         ))}
         <li className="flex items-center gap-1.5 rounded-full border border-dashed border-line px-3 py-1 text-xs text-gray-500">
@@ -100,7 +94,7 @@ export function RecordingView({
         {recording.stopping ? "Saving…" : "Stop & Transcribe"}
       </button>
       <p className="mt-4 max-w-md text-center text-xs leading-relaxed text-gray-500">
-        Keep this tab open while recording. Audio is transcribed in 10-minute parts in the background, so the transcript is ready soon after you stop.
+        Keep this tab open while recording. When you stop, the whole recording is transcribed in one go so speakers stay consistent. Every 10 minutes a backup part is saved in case the tab closes.
       </p>
     </section>
   );

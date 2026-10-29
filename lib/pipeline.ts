@@ -1,7 +1,7 @@
 "use client";
 
-import { getChunks, getMeeting, putChunk, updateMeeting } from "./db";
-import { fmtClock, transcriptToText } from "./format";
+import { getAudio, getChunks, getMeeting, updateMeeting } from "./db";
+import { transcriptToText } from "./format";
 import type { ChatMessage, Segment } from "./types";
 
 // ---- API calls ------------------------------------------------------------
@@ -11,15 +11,29 @@ async function readError(res: Response, fallback: string) {
   return new Error(data.error || `${fallback} (HTTP ${res.status})`);
 }
 
-async function apiTranscribe(blob: Blob, mimeType: string, offsetSec: number, context: string) {
-  const form = new FormData();
-  form.append("audio", blob, "audio");
-  form.append("mimeType", mimeType);
-  form.append("offsetSec", String(offsetSec));
-  if (context) form.append("context", context);
-  const res = await fetch("/api/transcribe", { method: "POST", body: form });
-  if (!res.ok) throw await readError(res, "Transcription failed");
-  return ((await res.json()) as { segments: Segment[] }).segments;
+/** Uploads audio and starts an AssemblyAI job; returns the job id. */
+async function apiStartTranscription(blob: Blob) {
+  const res = await fetch("/api/transcripts", {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: blob,
+  });
+  if (!res.ok) throw await readError(res, "Upload failed");
+  return ((await res.json()) as { id: string }).id;
+}
+
+type JobResult = { segments: Segment[]; durationMs: number };
+
+/** Polls a job until it finishes. AssemblyAI usually needs well under a minute per hour of audio. */
+async function apiWaitForTranscript(id: string): Promise<JobResult> {
+  for (;;) {
+    const res = await fetch(`/api/transcripts/${encodeURIComponent(id)}`);
+    if (!res.ok) throw await readError(res, "Transcription failed");
+    const data = (await res.json()) as { status: string; error?: string } & Partial<JobResult>;
+    if (data.status === "completed") return { segments: data.segments ?? [], durationMs: data.durationMs ?? 0 };
+    if (data.status === "error") throw new Error(data.error || "Transcription failed.");
+    await new Promise((r) => setTimeout(r, 3000));
+  }
 }
 
 async function apiSummary(transcript: string) {
@@ -59,7 +73,7 @@ export async function streamChat(
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-/** Work for one meeting runs strictly in order, so chunk N can use chunk N-1 as context. */
+/** Work for one meeting runs strictly in order, so a retry never races a running job. */
 const queues = new Map<string, Promise<void>>();
 
 function enqueue(meetingId: string, task: () => Promise<void>) {
@@ -68,30 +82,29 @@ function enqueue(meetingId: string, task: () => Promise<void>) {
   return next;
 }
 
-/** Last few lines of the previous chunk, so speaker labels stay consistent. */
-function contextFrom(segments: Segment[] | undefined) {
-  return (segments ?? [])
-    .slice(-8)
-    .map((s) => `[${fmtClock(s.start)}] ${s.speaker}: ${s.text}`)
-    .join("\n");
+/** Transcribes the full recording in one job, so speaker labels stay consistent throughout. */
+async function transcribeFullAudio(meetingId: string, blob: Blob): Promise<JobResult> {
+  let jobId = (await getMeeting(meetingId))?.transcriptionJobId;
+  if (!jobId) {
+    await updateMeeting(meetingId, { phase: "uploading" });
+    jobId = await apiStartTranscription(blob);
+    await updateMeeting(meetingId, { transcriptionJobId: jobId });
+  }
+  await updateMeeting(meetingId, { phase: "transcribing" });
+  return apiWaitForTranscript(jobId);
 }
 
-async function transcribeChunks(meetingId: string, retryErrors: boolean) {
+/** Fallback when the tab closed mid-recording: transcribe the saved 10-minute parts one by one. */
+async function transcribeSavedParts(meetingId: string): Promise<JobResult> {
   const chunks = await getChunks(meetingId);
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    if (chunk.status === "done" || (chunk.status === "error" && !retryErrors)) continue;
-
-    await putChunk({ ...chunk, status: "transcribing", error: undefined });
-    try {
-      const segments = await apiTranscribe(chunk.blob, chunk.mimeType, chunk.startMs / 1000, contextFrom(chunks[i - 1]?.segments));
-      chunks[i] = { ...chunk, status: "done", segments, error: undefined };
-    } catch (err) {
-      chunks[i] = { ...chunk, status: "error", error: message(err) };
-    }
-    await putChunk(chunks[i]);
+  if (!chunks.length) throw new Error("No audio was captured for this meeting.");
+  await updateMeeting(meetingId, { phase: "uploading" });
+  const segments: Segment[] = [];
+  for (const chunk of chunks) {
+    const { segments: part } = await apiWaitForTranscript(await apiStartTranscription(chunk.blob));
+    segments.push(...part.map((s) => ({ ...s, start: s.start + chunk.startMs / 1000 })));
   }
-  return chunks;
+  return { segments, durationMs: chunks.reduce((sum, c) => sum + c.durationMs, 0) };
 }
 
 async function summarize(meetingId: string) {
@@ -110,43 +123,31 @@ async function summarize(meetingId: string) {
   }
 }
 
-/** Called whenever a new chunk is saved during recording. */
-export function transcribePending(meetingId: string) {
-  return enqueue(meetingId, async () => {
-    await transcribeChunks(meetingId, false);
-  });
-}
-
-/** Transcribes whatever is left, merges the transcript and writes the summary. */
+/** Transcribes the meeting, then writes the summary. Safe to call again after a reload. */
 export function finalizeMeeting(meetingId: string) {
   return enqueue(meetingId, async () => {
     await updateMeeting(meetingId, { status: "processing", error: undefined });
-    const chunks = await transcribeChunks(meetingId, true);
-    const failed = chunks.find((c) => c.status !== "done");
-    if (!chunks.length || failed) {
-      await updateMeeting(meetingId, {
-        status: "error",
-        error: failed?.error ?? "No audio was captured for this meeting.",
-      });
+    try {
+      const audio = await getAudio(meetingId);
+      const { segments, durationMs } = audio ? await transcribeFullAudio(meetingId, audio.blob) : await transcribeSavedParts(meetingId);
+      await updateMeeting(meetingId, (m) => ({
+        status: "ready",
+        phase: undefined,
+        transcript: segments,
+        durationMs: m.durationMs || durationMs,
+      }));
+    } catch (err) {
+      // Forget the job so "Try again" starts a fresh upload.
+      await updateMeeting(meetingId, { status: "error", phase: undefined, transcriptionJobId: undefined, error: message(err) });
       return;
     }
-    const transcript = chunks.flatMap((c) => c.segments ?? []);
-    await updateMeeting(meetingId, (m) => ({
-      status: "ready",
-      transcript,
-      durationMs: m.durationMs || chunks.reduce((sum, c) => sum + c.durationMs, 0),
-    }));
     await summarize(meetingId);
   });
 }
 
-/** "Regenerate transcript": throw away all chunk results and start over. */
+/** "Transcribe again": discard the previous job and start over. */
 export async function retranscribeMeeting(meetingId: string) {
-  await enqueue(meetingId, async () => {
-    for (const chunk of await getChunks(meetingId)) {
-      await putChunk({ ...chunk, status: "pending", segments: undefined, error: undefined });
-    }
-  });
+  await updateMeeting(meetingId, { transcriptionJobId: undefined });
   return finalizeMeeting(meetingId);
 }
 

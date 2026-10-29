@@ -16,6 +16,10 @@ export interface Meeting {
   durationMs: number;
   source: "recording" | "import";
   status: MeetingStatus;
+  /** What a "processing" meeting is waiting on, for the UI. */
+  phase?: "uploading" | "transcribing";
+  /** AssemblyAI job id, kept so a reload resumes polling instead of uploading again. */
+  transcriptionJobId?: string;
   error?: string;
   transcript: Segment[];
   summary?: string;
@@ -24,7 +28,10 @@ export interface Meeting {
   chat: ChatMessage[];
 }
 
-/** A slice of audio (10 minutes for recordings) that is transcribed on its own. */
+/**
+ * A 10-minute slice saved while recording. Normally only a safety net: if the tab closes
+ * before the full recording is saved, the meeting is transcribed from these instead.
+ */
 export interface Chunk {
   id: string;
   meetingId: string;
