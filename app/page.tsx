@@ -9,7 +9,7 @@ import { EmptyState, Spinner } from "@/components/ui";
 import { hasLocalAudio, putAudio } from "@/lib/db";
 import { useMeeting, useMeetings } from "@/lib/hooks";
 import { finalizeMeeting } from "@/lib/pipeline";
-import { createMeeting, migrateBrowserMeetings } from "@/lib/store";
+import { createMeeting, migrateBrowserMeetings, moveBrowserAudioToFolder } from "@/lib/store";
 import { useRecording } from "@/lib/useRecording";
 
 export default function Home() {
@@ -40,8 +40,9 @@ export default function Home() {
     void (async () => {
       try {
         await migrateBrowserMeetings();
+        await moveBrowserAudioToFolder(meetings);
       } catch (err) {
-        showError(`Could not move saved meetings to the database: ${err instanceof Error ? err.message : err}`);
+        showError(`Could not move saved data out of the browser: ${err instanceof Error ? err.message : err}`);
       }
       for (const m of meetings) {
         if ((m.status === "recording" || m.status === "processing") && (await hasLocalAudio(m.id))) void finalizeMeeting(m.id);

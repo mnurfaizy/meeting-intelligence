@@ -11,6 +11,9 @@ next-env.d.ts
 # Local SQLite database used when TURSO_DATABASE_URL is not set
 local.db*
 
+# Meeting recordings (default AUDIO_DIR)
+recordings/
+
 .DS_Store
 npm-debug.log*
 .vercel

@@ -1,8 +1,8 @@
 "use client";
 
-import { deleteLocalAudio, getLegacyMeetings, removeLegacyMeeting } from "./db";
+import { deleteLocalAudio, getAudio, getLegacyMeetings, removeLegacyMeeting } from "./db";
 import { emitChange } from "./events";
-import type { ChatMessage, Meeting, MeetingListItem } from "./types";
+import type { AudioRecord, ChatMessage, Meeting, MeetingListItem } from "./types";
 
 /** Meetings, transcripts and chats live in the database behind /api/meetings. */
 
@@ -51,6 +51,34 @@ export async function updateMeeting(id: string, patch: MeetingUpdate | ((m: Meet
   return saved;
 }
 
+/** The stored blob with its MIME type set, so the server picks the right file extension. */
+export function asTypedBlob(audio: AudioRecord) {
+  return audio.blob.type ? audio.blob : new Blob([audio.blob], { type: audio.mimeType });
+}
+
+/** Saves a recording into the server's recordings folder. */
+export async function uploadMeetingAudio(id: string, blob: Blob, fileName?: string) {
+  const res = await fetch(`/api/meetings/${id}/audio`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": blob.type || "application/octet-stream",
+      ...(fileName ? { "X-File-Name": encodeURIComponent(fileName) } : {}),
+    },
+    body: blob,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Could not save the audio file (HTTP ${res.status})`);
+  }
+  emitChange();
+  return (await res.json()) as Meeting;
+}
+
+/** Starts transcription of the meeting's saved audio file; returns the job id. */
+export async function startServerTranscription(id: string) {
+  return (await request<{ id: string }>(`/api/meetings/${id}/transcription`, { method: "POST" })).id;
+}
+
 export async function appendMessages(id: string, messages: ChatMessage[]) {
   await request(`/api/meetings/${id}/messages`, { method: "POST", body: JSON.stringify({ messages }) });
   emitChange();
@@ -74,4 +102,21 @@ export async function migrateBrowserMeetings() {
   }
   if (legacy.length) emitChange();
   return legacy.length;
+}
+
+/**
+ * Moves recordings that are still stored in this browser into the recordings folder.
+ * Meetings that are mid-transcription are skipped; finalizeMeeting moves those itself.
+ */
+export async function moveBrowserAudioToFolder(meetings: MeetingListItem[]) {
+  let moved = 0;
+  for (const m of meetings) {
+    if (m.audioFile || m.status === "recording" || m.status === "processing") continue;
+    const local = await getAudio(m.id);
+    if (!local) continue;
+    await uploadMeetingAudio(m.id, asTypedBlob(local), local.blob instanceof File ? local.blob.name : undefined);
+    await deleteLocalAudio(m.id);
+    moved++;
+  }
+  return moved;
 }

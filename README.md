@@ -16,7 +16,10 @@ You can also **Import Recording** to transcribe an existing audio or video file 
 | Data | Stored in |
 | --- | --- |
 | Meetings, transcript lines, summaries, Assistant chats | **Turso** (libSQL) — or a local `local.db` SQLite file when Turso is not configured |
-| Audio files and 10-minute backup parts | The browser that recorded/imported them (IndexedDB) |
+| Audio files | Plain files in the **recordings folder** (`AUDIO_DIR`, default `./recordings`), e.g. `2026-10-29_1021_5542c12e.webm` |
+| 10-minute backup parts while recording | The browser (IndexedDB), deleted once the full recording is saved |
+
+Recordings are first kept in the browser, then moved into the recordings folder when you stop (or import); if that fails, they stay in the browser and are moved on the next try. Recordings made by the earlier browser-only version are moved into the folder automatically. Deleting a meeting also deletes its audio file.
 
 Audio is also sent to AssemblyAI for transcription, and transcript text to Gemini for the summary and chat.
 
@@ -56,6 +59,7 @@ Open http://localhost:3000 in **Chrome or Edge on desktop**.
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model for summary and chat. |
 | `TURSO_DATABASE_URL` | `file:local.db` | Turso database URL (`libsql://…`). Empty uses a local SQLite file. |
 | `TURSO_AUTH_TOKEN` | — | Turso auth token. |
+| `AUDIO_DIR` | `./recordings` | Folder for recordings. A Google Drive for Desktop folder backs them up automatically. |
 
 ## Project layout
 
@@ -66,7 +70,10 @@ app/api/transcripts/[id]     poll a job, return transcript segments
 app/api/summary              transcript -> title + Markdown summary (Gemini)
 app/api/chat                 streaming Q&A over one meeting (Gemini)
 app/api/meetings             list / create / read / update / delete meetings
+app/api/meetings/[id]/audio  save / stream (with seeking) a meeting's audio file
+app/api/meetings/[id]/transcription  send the saved audio file to AssemblyAI
 lib/server/db.ts             database schema and queries (Turso / libSQL)
+lib/server/audio.ts          recordings folder
 lib/store.ts                 browser client for /api/meetings
 lib/recorder.ts              tab + mic capture, 10-minute backup parts
 lib/pipeline.ts              transcription, summary and chat client

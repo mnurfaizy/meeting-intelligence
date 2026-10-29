@@ -25,7 +25,9 @@ const SCHEMA = [
     error TEXT,
     summary TEXT,
     summary_status TEXT NOT NULL DEFAULT 'idle',
-    summary_error TEXT
+    summary_error TEXT,
+    audio_file TEXT,
+    audio_mime TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS meetings_created_at ON meetings (created_at DESC)`,
   `CREATE TABLE IF NOT EXISTS transcript_segments (
@@ -46,9 +48,26 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS chat_messages_meeting ON chat_messages (meeting_id, id)`,
 ];
 
+/** Columns added after the first release; created on databases that predate them. */
+const ADDED_COLUMNS: [table: string, column: string, type: string][] = [
+  ["meetings", "audio_file", "TEXT"],
+  ["meetings", "audio_mime", "TEXT"],
+];
+
+async function migrate() {
+  await client.batch(SCHEMA, "write");
+  for (const [table, column, type] of ADDED_COLUMNS) {
+    const { rows } = await client.execute(`PRAGMA table_info(${table})`);
+    if (!rows.some((r) => r.name === column)) await client.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+}
+
 let ready: Promise<unknown> | null = null;
 function db() {
-  ready ??= client.batch(SCHEMA, "write");
+  ready ??= migrate().catch((err) => {
+    ready = null; // let the next request retry
+    throw err;
+  });
   return ready.then(() => client);
 }
 
@@ -68,6 +87,8 @@ const COLUMNS = {
   summary: "summary",
   summaryStatus: "summary_status",
   summaryError: "summary_error",
+  audioFile: "audio_file",
+  audioMime: "audio_mime",
 } as const;
 
 type ColumnField = keyof typeof COLUMNS;
@@ -89,6 +110,8 @@ function toListItem(r: Row): MeetingListItem {
     summary: opt(r.summary),
     summaryStatus: r.summary_status as Meeting["summaryStatus"],
     summaryError: opt(r.summary_error),
+    audioFile: opt(r.audio_file),
+    audioMime: opt(r.audio_mime),
     chatCount: Number(r.chat_count ?? 0),
     lastQuestion: opt(r.last_question),
   };

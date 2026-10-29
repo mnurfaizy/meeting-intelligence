@@ -1,7 +1,7 @@
 "use client";
 
-import { getAudio, getChunks } from "./db";
-import { getMeeting, updateMeeting } from "./store";
+import { deleteLocalAudio, getAudio, getChunks } from "./db";
+import { asTypedBlob, getMeeting, startServerTranscription, updateMeeting, uploadMeetingAudio } from "./store";
 import { transcriptToText } from "./format";
 import type { ChatMessage, Segment } from "./types";
 
@@ -83,13 +83,26 @@ function enqueue(meetingId: string, task: () => Promise<void>) {
   return next;
 }
 
-/** Transcribes the full recording in one job, so speaker labels stay consistent throughout. */
-async function transcribeFullAudio(meetingId: string, blob: Blob): Promise<JobResult> {
+/**
+ * Makes sure the recording is in the server's recordings folder, moving it there from this
+ * browser if needed. Returns false when neither has it.
+ */
+async function ensureAudioFile(meetingId: string) {
+  if ((await getMeeting(meetingId))?.audioFile) return true;
+  const local = await getAudio(meetingId);
+  if (!local) return false;
+  await updateMeeting(meetingId, { phase: "uploading" });
+  await uploadMeetingAudio(meetingId, asTypedBlob(local), local.blob instanceof File ? local.blob.name : undefined);
+  await deleteLocalAudio(meetingId);
+  return true;
+}
+
+/** Transcribes the full recording file in one job, so speaker labels stay consistent throughout. */
+async function transcribeAudioFile(meetingId: string): Promise<JobResult> {
   let jobId = (await getMeeting(meetingId))?.transcriptionJobId;
   if (!jobId) {
     await updateMeeting(meetingId, { phase: "uploading" });
-    jobId = await apiStartTranscription(blob);
-    await updateMeeting(meetingId, { transcriptionJobId: jobId });
+    jobId = await startServerTranscription(meetingId);
   }
   await updateMeeting(meetingId, { phase: "transcribing" });
   return apiWaitForTranscript(jobId);
@@ -129,8 +142,9 @@ export function finalizeMeeting(meetingId: string) {
   return enqueue(meetingId, async () => {
     await updateMeeting(meetingId, { status: "processing", error: undefined });
     try {
-      const audio = await getAudio(meetingId);
-      const { segments, durationMs } = audio ? await transcribeFullAudio(meetingId, audio.blob) : await transcribeSavedParts(meetingId);
+      const { segments, durationMs } = (await ensureAudioFile(meetingId))
+        ? await transcribeAudioFile(meetingId)
+        : await transcribeSavedParts(meetingId);
       await updateMeeting(meetingId, (m) => ({
         status: "ready",
         phase: undefined,

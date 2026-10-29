@@ -1,4 +1,5 @@
 import { HttpError, errorResponse } from "@/lib/gemini";
+import { deleteAudio } from "@/lib/server/audio";
 import { deleteMeeting, getMeeting, updateMeeting, type MeetingPatch } from "@/lib/server/db";
 
 export const runtime = "nodejs";
@@ -27,9 +28,13 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
 }
 
+/** Deletes the meeting, its transcript and chat, and its file in the recordings folder. */
 export async function DELETE(_req: Request, { params }: Ctx) {
   try {
-    await deleteMeeting((await params).id);
+    const { id } = await params;
+    const meeting = await getMeeting(id);
+    await deleteMeeting(id);
+    if (meeting?.audioFile) await deleteAudio(meeting.audioFile);
     return new Response(null, { status: 204 });
   } catch (err) {
     return errorResponse(err);

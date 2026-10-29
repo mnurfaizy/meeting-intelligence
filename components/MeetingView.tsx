@@ -124,7 +124,7 @@ function MeetingHeader({ meeting, onDeleted }: { meeting: Meeting; onDeleted: ()
           title="Delete meeting"
           message={
             <>
-              Delete <b className="text-ink">{meeting.title || "this meeting"}</b> with its transcript, summary and chat? This cannot be undone.
+              Delete <b className="text-ink">{meeting.title || "this meeting"}</b> with its transcript, summary, chat and audio file? This cannot be undone.
             </>
           }
           onClose={() => setConfirming(false)}
@@ -173,7 +173,7 @@ function SummaryBody({ meeting }: { meeting: Meeting }) {
 }
 
 function AudioCard({ meeting, audioRef }: { meeting: Meeting; audioRef: React.RefObject<HTMLAudioElement | null> }) {
-  const url = useAudioUrl(meeting.id, meeting.status);
+  const url = useAudioUrl(meeting);
   return (
     <section className="card p-4">
       <h2 className="mb-3 px-1 text-base font-bold">Audio</h2>
@@ -196,7 +196,12 @@ function AudioCard({ meeting, audioRef }: { meeting: Meeting; audioRef: React.Re
         <p className="rounded-[var(--radius-md)] bg-surface-muted px-4 py-3 text-[13px] text-ink-2">
           {meeting.status === "recording"
             ? "Audio will be available when the recording stops."
-            : "The audio is stored only in the browser where this meeting was recorded or imported."}
+            : "No audio file was saved for this meeting."}
+        </p>
+      )}
+      {meeting.audioFile && (
+        <p className="mt-2 truncate px-1 text-xs text-muted" title="File in the recordings folder">
+          {meeting.audioFile}
         </p>
       )}
     </section>

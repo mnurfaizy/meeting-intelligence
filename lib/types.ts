@@ -20,6 +20,9 @@ export interface Meeting {
   phase?: "uploading" | "transcribing";
   /** AssemblyAI job id, kept so a reload resumes polling instead of uploading again. */
   transcriptionJobId?: string;
+  /** Recording file name inside the server's AUDIO_DIR folder. */
+  audioFile?: string;
+  audioMime?: string;
   error?: string;
   transcript: Segment[];
   summary?: string;
