@@ -7,7 +7,7 @@ Record any meeting that runs in a browser tab (Google Meet, Zoom web, Teams…),
 1. **Record** — the app asks Chrome to share a tab (`getDisplayMedia`) and captures that tab's audio, mixed with your microphone so your own voice is included.
 2. **Transcribe** — when you stop, the whole recording is sent to **AssemblyAI** in one job, with speaker labels and automatic language detection. Because the file is transcribed in one piece, speakers stay consistent from start to finish. Every line has a clickable timestamp.
 3. **Summarize** — **Gemini** writes a title and a summary (overview, key points, decisions, action items, open questions).
-4. **Ask** — the Assistant tab answers questions using only that meeting's transcript, with timestamps (Gemini).
+4. **Ask** — the Assistant tab answers questions using only that meeting's transcript, with timestamps (**Groq**, `openai/gpt-oss-120b`). For long meetings it sends the summary plus the transcript lines most relevant to the question, so it fits Groq's free-plan limit of 8K tokens per minute.
 
 You can also **Import Recording** to transcribe an existing audio or video file (m4a, mp3, wav, mp4, webm…). The file is sent as-is.
 
@@ -22,7 +22,7 @@ You can also **Import Recording** to transcribe an existing audio or video file 
 
 Recordings are first kept in the browser, then moved into the recordings folder when you stop (or import); if that fails, they stay in the browser and are moved on the next try. Recordings made by the earlier browser-only version are moved into the folder automatically. Deleting a meeting also deletes its audio file.
 
-Audio is also sent to AssemblyAI for transcription, and transcript text to Gemini for the summary and chat.
+Audio is also sent to AssemblyAI for transcription; transcript text goes to Gemini for the summary and to Groq for the Assistant.
 
 The database has three tables, easy to query or export with any SQLite tool:
 
@@ -34,11 +34,11 @@ Meetings saved by the earlier browser-only version are moved into the database a
 
 ## Setup
 
-Requirements: Node.js 20+, an AssemblyAI API key and a Gemini API key.
+Requirements: Node.js 20+ and API keys for AssemblyAI, Gemini and Groq.
 
 ```bash
 npm install
-cp .env.example .env.local   # then fill in ASSEMBLYAI_API_KEY and GEMINI_API_KEY
+cp .env.example .env.local   # then fill in ASSEMBLYAI_API_KEY, GEMINI_API_KEY and GROQ_API_KEY
 npm run dev
 ```
 
@@ -57,8 +57,11 @@ Open http://localhost:3000 in **Chrome or Edge on desktop**.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `ASSEMBLYAI_API_KEY` | — | Required. Transcription. |
-| `GEMINI_API_KEY` | — | Required. Summary and Assistant chat. |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model for summary and chat. |
+| `GEMINI_API_KEY` | — | Required. Meeting summary and title. |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model for the summary. |
+| `GROQ_API_KEY` | — | Required. Assistant chat. |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Groq model for the Assistant. |
+| `GROQ_MAX_INPUT_TOKENS` | `3500` | Context sent per question. Raise on a paid Groq plan to send whole transcripts. |
 | `TURSO_DATABASE_URL` | `file:local.db` | Turso database URL (`libsql://…`). Empty uses a local SQLite file. |
 | `TURSO_AUTH_TOKEN` | — | Turso auth token. |
 | `AUDIO_DIR` | `./recordings` | Folder for recordings. A Google Drive for Desktop folder backs them up automatically. |
@@ -70,7 +73,8 @@ app/page.tsx                 main screen
 app/api/transcripts          upload audio -> start an AssemblyAI job
 app/api/transcripts/[id]     poll a job, return transcript segments
 app/api/summary              transcript -> title + Markdown summary (Gemini)
-app/api/chat                 streaming Q&A over one meeting (Gemini)
+app/api/chat                 streaming Q&A over one meeting (Groq)
+lib/chatContext.ts           fits summary + relevant transcript lines into the token budget
 app/api/meetings             list / create / read / update / delete meetings
 app/api/meetings/[id]/audio  save / stream (with seeking) a meeting's audio file
 app/api/meetings/[id]/transcription  send the saved audio file to AssemblyAI
