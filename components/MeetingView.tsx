@@ -20,7 +20,8 @@ export function MeetingView({ meeting, initialTab, onDeleted }: { meeting: Meeti
     const media = mediaRef.current;
     if (!media) return;
     media.currentTime = sec;
-    void media.play();
+    // play() rejects with AbortError when a pause or another seek interrupts it; that is expected.
+    media.play().catch(() => {});
   };
 
   return (
