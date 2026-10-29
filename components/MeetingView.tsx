@@ -3,7 +3,7 @@
 import { Download, Pencil, RefreshCw, Sparkles, Trash2, TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import { fmtDateTime, fmtDuration } from "@/lib/format";
-import { useAudioUrl } from "@/lib/hooks";
+import { useMediaSource } from "@/lib/hooks";
 import { regenerateSummary } from "@/lib/pipeline";
 import { deleteMeeting, updateMeeting } from "@/lib/store";
 import type { Meeting } from "@/lib/types";
@@ -14,13 +14,13 @@ import { Confirm, CopyButton, EmptyState, IconButton, Spinner, downloadText } fr
 
 export function MeetingView({ meeting, initialTab, onDeleted }: { meeting: Meeting; initialTab: "summary" | "assistant"; onDeleted: () => void }) {
   const [tab, setTab] = useState(initialTab);
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const mediaRef = useRef<HTMLMediaElement>(null);
 
   const seek = (sec: number) => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.currentTime = sec;
-    void audio.play();
+    const media = mediaRef.current;
+    if (!media) return;
+    media.currentTime = sec;
+    void media.play();
   };
 
   return (
@@ -62,7 +62,7 @@ export function MeetingView({ meeting, initialTab, onDeleted }: { meeting: Meeti
         </section>
 
         <div className="flex min-h-0 flex-col gap-5 xl:w-[440px] 2xl:w-[520px]">
-          <AudioCard meeting={meeting} audioRef={audioRef} />
+          <MediaCard meeting={meeting} mediaRef={mediaRef} />
           <TranscriptCard meeting={meeting} onSeek={seek} />
         </div>
       </div>
@@ -124,7 +124,7 @@ function MeetingHeader({ meeting, onDeleted }: { meeting: Meeting; onDeleted: ()
           title="Delete meeting"
           message={
             <>
-              Delete <b className="text-ink">{meeting.title || "this meeting"}</b> with its transcript, summary, chat and audio file? This cannot be undone.
+              Delete <b className="text-ink">{meeting.title || "this meeting"}</b> with its transcript, summary, chat and recording files? This cannot be undone.
             </>
           }
           onClose={() => setConfirming(false)}
@@ -172,38 +172,48 @@ function SummaryBody({ meeting }: { meeting: Meeting }) {
   );
 }
 
-function AudioCard({ meeting, audioRef }: { meeting: Meeting; audioRef: React.RefObject<HTMLAudioElement | null> }) {
-  const url = useAudioUrl(meeting);
+/** MediaRecorder WebM files have no duration header; seeking to the end makes Chrome compute it. */
+function fixWebmDuration(e: React.SyntheticEvent<HTMLMediaElement>) {
+  const media = e.currentTarget;
+  if (Number.isFinite(media.duration)) return;
+  media.currentTime = 1e9;
+  media.addEventListener("timeupdate", () => (media.currentTime = 0), { once: true });
+}
+
+function MediaCard({ meeting, mediaRef }: { meeting: Meeting; mediaRef: React.RefObject<HTMLMediaElement | null> }) {
+  const source = useMediaSource(meeting);
+  const files = [meeting.videoFile, meeting.audioFile].filter(Boolean);
   return (
     <section className="card p-4">
-      <h2 className="mb-3 px-1 text-base font-bold">Audio</h2>
-      {url ? (
+      <h2 className="mb-3 px-1 text-base font-bold">{source?.video ? "Video" : "Audio"}</h2>
+      {source?.video ? (
+        <video
+          ref={mediaRef as React.RefObject<HTMLVideoElement | null>}
+          src={source.url}
+          controls
+          preload="metadata"
+          className="aspect-video w-full rounded-[var(--radius-md)] bg-black"
+          onLoadedMetadata={fixWebmDuration}
+        />
+      ) : source ? (
         <audio
-          ref={audioRef}
-          src={url}
+          ref={mediaRef as React.RefObject<HTMLAudioElement | null>}
+          src={source.url}
           controls
           preload="metadata"
           className="w-full"
-          onLoadedMetadata={(e) => {
-            // MediaRecorder WebM files have no duration header; seeking to the end makes Chrome compute it.
-            const audio = e.currentTarget;
-            if (Number.isFinite(audio.duration)) return;
-            audio.currentTime = 1e9;
-            audio.addEventListener("timeupdate", () => (audio.currentTime = 0), { once: true });
-          }}
+          onLoadedMetadata={fixWebmDuration}
         />
       ) : (
         <p className="rounded-[var(--radius-md)] bg-surface-muted px-4 py-3 text-[13px] text-ink-2">
-          {meeting.status === "recording"
-            ? "Audio will be available when the recording stops."
-            : "No audio file was saved for this meeting."}
+          {meeting.status === "recording" ? "The recording will be available when it stops." : "No recording was saved for this meeting."}
         </p>
       )}
-      {meeting.audioFile && (
-        <p className="mt-2 truncate px-1 text-xs text-muted" title="File in the recordings folder">
-          {meeting.audioFile}
+      {files.map((file) => (
+        <p key={file} className="mt-2 truncate px-1 text-xs text-muted" title="File in the recordings folder">
+          {file}
         </p>
-      )}
+      ))}
     </section>
   );
 }

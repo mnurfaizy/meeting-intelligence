@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Mic, MicOff, MonitorSpeaker, Square, TriangleAlert } from "lucide-react";
+import { Check, Mic, MicOff, MonitorSpeaker, Square, TriangleAlert, Video, VideoOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fmtClock } from "@/lib/format";
 import { useChunks } from "@/lib/hooks";
@@ -69,6 +69,11 @@ export function RecordingView({
           icon={recording.micActive ? <Mic size={18} /> : <MicOff size={18} />}
           label="Microphone"
           value={recording.micActive ? "On — your voice is included" : "Off"}
+        />
+        <Row
+          icon={recording.videoActive ? <Video size={18} /> : <VideoOff size={18} />}
+          label="Screen video"
+          value={recording.videoActive ? "On — saved to your recordings folder" : "Off"}
         />
       </div>
 

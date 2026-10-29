@@ -13,19 +13,37 @@ interface LocalDB extends DBSchema {
   meetings: { key: string; value: Meeting };
   chunks: { key: string; value: Chunk; indexes: { byMeeting: string } };
   audio: { key: string; value: AudioRecord };
+  /** Screen video recordings, until they are moved into the recordings folder. */
+  video: { key: string; value: AudioRecord };
 }
 
 let dbPromise: Promise<IDBPDatabase<LocalDB>> | null = null;
 
 function db() {
-  dbPromise ??= openDB<LocalDB>("meeting-intelligence", 1, {
-    upgrade(d) {
-      d.createObjectStore("meetings", { keyPath: "id" });
-      d.createObjectStore("chunks", { keyPath: "id" }).createIndex("byMeeting", "meetingId");
-      d.createObjectStore("audio", { keyPath: "meetingId" });
+  dbPromise ??= openDB<LocalDB>("meeting-intelligence", 2, {
+    upgrade(d, oldVersion) {
+      if (oldVersion < 1) {
+        d.createObjectStore("meetings", { keyPath: "id" });
+        d.createObjectStore("chunks", { keyPath: "id" }).createIndex("byMeeting", "meetingId");
+        d.createObjectStore("audio", { keyPath: "meetingId" });
+      }
+      if (oldVersion < 2) d.createObjectStore("video", { keyPath: "meetingId" });
     },
   });
   return dbPromise;
+}
+
+export async function putVideo(video: AudioRecord) {
+  await (await db()).put("video", video);
+  emitChange();
+}
+
+export async function getVideo(meetingId: string) {
+  return (await db()).get("video", meetingId);
+}
+
+export async function deleteLocalVideo(meetingId: string) {
+  await (await db()).delete("video", meetingId);
 }
 
 export async function getChunks(meetingId: string) {

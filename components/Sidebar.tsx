@@ -18,6 +18,8 @@ type Props = {
   onStop: () => void;
   includeMic: boolean;
   onIncludeMicChange: (v: boolean) => void;
+  includeVideo: boolean;
+  onIncludeVideoChange: (v: boolean) => void;
   onImport: (file: File) => void;
   onCollapse: () => void;
 };
@@ -79,13 +81,22 @@ export function Sidebar(props: Props) {
           </button>
         )}
 
-        <label className="flex items-center justify-between gap-3 rounded-[var(--radius-md)] bg-white px-4 py-3 shadow-[var(--shadow-raised)]">
-          <span>
-            <span className="block font-bold">Include microphone</span>
-            <span className="block text-xs text-ink-2">Records your own voice too</span>
-          </span>
-          <Toggle checked={props.includeMic} onChange={props.onIncludeMicChange} disabled={!!recording} />
-        </label>
+        <div className="rounded-[var(--radius-md)] bg-white shadow-[var(--shadow-raised)]">
+          <label className="flex items-center justify-between gap-3 px-4 py-3">
+            <span>
+              <span className="block font-bold">Include microphone</span>
+              <span className="block text-xs text-ink-2">Records your own voice too</span>
+            </span>
+            <Toggle checked={props.includeMic} onChange={props.onIncludeMicChange} disabled={!!recording} />
+          </label>
+          <label className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
+            <span>
+              <span className="block font-bold">Record screen video</span>
+              <span className="block text-xs text-ink-2">Saved to your recordings folder · ~450 MB/hour</span>
+            </span>
+            <Toggle checked={props.includeVideo} onChange={props.onIncludeVideoChange} disabled={!!recording} />
+          </label>
+        </div>
 
         <button type="button" onClick={() => fileInput.current?.click()} disabled={!!recording} className="btn btn-outline btn-block">
           <Upload size={16} />

@@ -17,6 +17,7 @@ export default function Home() {
   const [selected, setSelected] = useState<{ id: string; tab: "summary" | "assistant" } | null>(null);
   const meeting = useMeeting(selected?.id ?? null);
   const [includeMic, setIncludeMic] = useState(true);
+  const [includeVideo, setIncludeVideo] = useState(false);
   const [starting, setStarting] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -52,7 +53,7 @@ export default function Home() {
 
   const startRecording = async () => {
     setStarting(true);
-    const id = await rec.start(includeMic);
+    const id = await rec.start(includeMic, includeVideo);
     setStarting(false);
     if (id) setSelected({ id, tab: "summary" });
   };
@@ -103,6 +104,8 @@ export default function Home() {
           onStop={rec.stop}
           includeMic={includeMic}
           onIncludeMicChange={setIncludeMic}
+          includeVideo={includeVideo}
+          onIncludeVideoChange={setIncludeVideo}
           onImport={importFile}
           onCollapse={() => setCollapsed(true)}
         />

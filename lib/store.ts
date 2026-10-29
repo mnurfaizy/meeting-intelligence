@@ -1,6 +1,6 @@
 "use client";
 
-import { deleteLocalAudio, getAudio, getLegacyMeetings, removeLegacyMeeting } from "./db";
+import { deleteLocalAudio, deleteLocalVideo, getAudio, getLegacyMeetings, removeLegacyMeeting } from "./db";
 import { emitChange } from "./events";
 import type { AudioRecord, ChatMessage, Meeting, MeetingListItem } from "./types";
 
@@ -56,9 +56,9 @@ export function asTypedBlob(audio: AudioRecord) {
   return audio.blob.type ? audio.blob : new Blob([audio.blob], { type: audio.mimeType });
 }
 
-/** Saves a recording into the server's recordings folder. */
-export async function uploadMeetingAudio(id: string, blob: Blob, fileName?: string) {
-  const res = await fetch(`/api/meetings/${id}/audio`, {
+/** Saves a recording (or, with kind "video", the screen video) into the server's recordings folder. */
+export async function uploadMeetingAudio(id: string, blob: Blob, fileName?: string, kind: "audio" | "video" = "audio") {
+  const res = await fetch(`/api/meetings/${id}/audio${kind === "video" ? "?kind=video" : ""}`, {
     method: "PUT",
     headers: {
       "Content-Type": blob.type || "application/octet-stream",
@@ -87,6 +87,7 @@ export async function appendMessages(id: string, messages: ChatMessage[]) {
 export async function deleteMeeting(id: string) {
   await request(`/api/meetings/${id}`, { method: "DELETE" });
   await deleteLocalAudio(id);
+  await deleteLocalVideo(id);
   emitChange();
 }
 

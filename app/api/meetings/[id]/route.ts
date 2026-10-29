@@ -35,6 +35,7 @@ export async function DELETE(_req: Request, { params }: Ctx) {
     const meeting = await getMeeting(id);
     await deleteMeeting(id);
     if (meeting?.audioFile) await deleteAudio(meeting.audioFile);
+    if (meeting?.videoFile) await deleteAudio(meeting.videoFile);
     return new Response(null, { status: 204 });
   } catch (err) {
     return errorResponse(err);

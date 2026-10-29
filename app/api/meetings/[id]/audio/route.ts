@@ -1,4 +1,4 @@
-import { audioSize, deleteAudio, mimeForFile, readAudio, saveAudio } from "@/lib/server/audio";
+import { audioSize, deleteAudio, mimeForFile, readAudio, saveAudio, type MediaKind } from "@/lib/server/audio";
 import { getMeeting, updateMeeting } from "@/lib/server/db";
 import { HttpError, errorResponse } from "@/lib/gemini";
 
@@ -13,31 +13,43 @@ async function findMeeting(ctx: Ctx) {
   return meeting;
 }
 
-/** Saves the meeting's recording into the audio folder (replacing any previous file). */
+/** `?kind=video` addresses the screen video; anything else the audio recording. */
+function kindOf(req: Request): MediaKind {
+  return new URL(req.url).searchParams.get("kind") === "video" ? "video" : "audio";
+}
+
+const fields = (kind: MediaKind) => (kind === "video" ? ({ file: "videoFile", mime: "videoMime" } as const) : ({ file: "audioFile", mime: "audioMime" } as const));
+
+/** Saves the meeting's recording (or screen video) into the recordings folder, replacing any previous file. */
 export async function PUT(req: Request, ctx: Ctx) {
   try {
     const meeting = await findMeeting(ctx);
-    if (!req.body) throw new HttpError(400, "No audio received.");
+    if (!req.body) throw new HttpError(400, "No file received.");
+    const kind = kindOf(req);
+    const { file, mime } = fields(kind);
     const mimeType = req.headers.get("content-type") || "application/octet-stream";
     const originalName = req.headers.get("x-file-name") ? decodeURIComponent(req.headers.get("x-file-name")!) : undefined;
-    const fileName = await saveAudio(req.body, { meetingId: meeting.id, createdAt: meeting.createdAt, mimeType, originalName });
-    if (meeting.audioFile && meeting.audioFile !== fileName) await deleteAudio(meeting.audioFile);
-    await updateMeeting(meeting.id, { audioFile: fileName, audioMime: mimeType });
+    const fileName = await saveAudio(req.body, { meetingId: meeting.id, createdAt: meeting.createdAt, mimeType, originalName, kind });
+    const previous = meeting[file];
+    if (previous && previous !== fileName) await deleteAudio(previous);
+    await updateMeeting(meeting.id, { [file]: fileName, [mime]: mimeType });
     return Response.json(await getMeeting(meeting.id));
   } catch (err) {
     return errorResponse(err);
   }
 }
 
-/** Streams the recording, with Range support so the audio player can seek. */
+/** Streams the file, with Range support so the player can seek. */
 export async function GET(req: Request, ctx: Ctx) {
   try {
     const meeting = await findMeeting(ctx);
-    if (!meeting.audioFile) throw new HttpError(404, "This meeting has no audio file.");
-    const size = await audioSize(meeting.audioFile).catch(() => {
-      throw new HttpError(404, "The audio file is missing from the recordings folder.");
+    const { file, mime } = fields(kindOf(req));
+    const fileName = meeting[file];
+    if (!fileName) throw new HttpError(404, "This meeting has no such file.");
+    const size = await audioSize(fileName).catch(() => {
+      throw new HttpError(404, "The file is missing from the recordings folder.");
     });
-    const type = meeting.audioMime?.split(";")[0] || mimeForFile(meeting.audioFile);
+    const type = meeting[mime]?.split(";")[0] || mimeForFile(fileName);
     const headers = { "Content-Type": type, "Accept-Ranges": "bytes", "Cache-Control": "no-store" };
 
     const match = req.headers.get("range")?.match(/bytes=(\d*)-(\d*)/);
@@ -47,12 +59,12 @@ export async function GET(req: Request, ctx: Ctx) {
       if (start >= size || start > end) {
         return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
       }
-      return new Response(readAudio(meeting.audioFile, { start, end }), {
+      return new Response(readAudio(fileName, { start, end }), {
         status: 206,
         headers: { ...headers, "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": String(end - start + 1) },
       });
     }
-    return new Response(readAudio(meeting.audioFile), { headers: { ...headers, "Content-Length": String(size) } });
+    return new Response(readAudio(fileName), { headers: { ...headers, "Content-Length": String(size) } });
   } catch (err) {
     return errorResponse(err);
   }

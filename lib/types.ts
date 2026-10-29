@@ -23,6 +23,9 @@ export interface Meeting {
   /** Recording file name inside the server's AUDIO_DIR folder. */
   audioFile?: string;
   audioMime?: string;
+  /** Screen video file (picture + audio) in the same folder, when one was recorded. */
+  videoFile?: string;
+  videoMime?: string;
   error?: string;
   transcript: Segment[];
   summary?: string;

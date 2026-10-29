@@ -1,14 +1,40 @@
-import { createClient, type InStatement, type Row } from "@libsql/client";
+import { createClient, type InStatement, type Row, type TransactionMode } from "@libsql/client";
 import type { ChatMessage, Meeting, MeetingListItem, Segment } from "../types";
 
 /**
  * Turso (libSQL) when TURSO_DATABASE_URL is set; otherwise a local SQLite file, so the app
  * runs without an account during development. Same SQL either way.
  */
-const client = createClient({
+const raw = createClient({
   url: process.env.TURSO_DATABASE_URL?.trim() || "file:local.db",
   authToken: process.env.TURSO_AUTH_TOKEN?.trim() || undefined,
 });
+
+/** True when the connection never opened, so nothing reached the database and a retry cannot double-write. */
+function isConnectError(err: unknown) {
+  for (let e: unknown = err, depth = 0; e && depth < 4; e = (e as { cause?: unknown }).cause, depth++) {
+    const code = (e as { code?: string }).code ?? "";
+    if (/UND_ERR_CONNECT_TIMEOUT|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/.test(code) || /ConnectTimeoutError/.test(String(e))) return true;
+  }
+  return false;
+}
+
+async function retryOnConnectError<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (i >= attempts || !isConnectError(err)) throw err;
+      console.warn(`Database connection failed (attempt ${i}/${attempts}), retrying:`, String(err));
+      await new Promise((r) => setTimeout(r, 1000 * i));
+    }
+  }
+}
+
+const client = {
+  execute: (stmt: InStatement) => retryOnConnectError(() => raw.execute(stmt)),
+  batch: (stmts: InStatement[], mode?: TransactionMode) => retryOnConnectError(() => raw.batch(stmts, mode)),
+};
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS meetings (
@@ -27,7 +53,9 @@ const SCHEMA = [
     summary_status TEXT NOT NULL DEFAULT 'idle',
     summary_error TEXT,
     audio_file TEXT,
-    audio_mime TEXT
+    audio_mime TEXT,
+    video_file TEXT,
+    video_mime TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS meetings_created_at ON meetings (created_at DESC)`,
   `CREATE TABLE IF NOT EXISTS transcript_segments (
@@ -52,6 +80,8 @@ const SCHEMA = [
 const ADDED_COLUMNS: [table: string, column: string, type: string][] = [
   ["meetings", "audio_file", "TEXT"],
   ["meetings", "audio_mime", "TEXT"],
+  ["meetings", "video_file", "TEXT"],
+  ["meetings", "video_mime", "TEXT"],
 ];
 
 async function migrate() {
@@ -89,6 +119,8 @@ const COLUMNS = {
   summaryError: "summary_error",
   audioFile: "audio_file",
   audioMime: "audio_mime",
+  videoFile: "video_file",
+  videoMime: "video_mime",
 } as const;
 
 type ColumnField = keyof typeof COLUMNS;
@@ -112,6 +144,8 @@ function toListItem(r: Row): MeetingListItem {
     summaryError: opt(r.summary_error),
     audioFile: opt(r.audio_file),
     audioMime: opt(r.audio_mime),
+    videoFile: opt(r.video_file),
+    videoMime: opt(r.video_mime),
     chatCount: Number(r.chat_count ?? 0),
     lastQuestion: opt(r.last_question),
   };

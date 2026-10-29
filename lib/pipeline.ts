@@ -1,6 +1,6 @@
 "use client";
 
-import { deleteLocalAudio, getAudio, getChunks } from "./db";
+import { deleteLocalAudio, deleteLocalVideo, getAudio, getChunks, getVideo } from "./db";
 import { asTypedBlob, getMeeting, startServerTranscription, updateMeeting, uploadMeetingAudio } from "./store";
 import { transcriptToText } from "./format";
 import type { ChatMessage, Segment } from "./types";
@@ -88,7 +88,15 @@ function enqueue(meetingId: string, task: () => Promise<void>) {
  * browser if needed. Returns false when neither has it.
  */
 async function ensureAudioFile(meetingId: string) {
-  if ((await getMeeting(meetingId))?.audioFile) return true;
+  const meeting = await getMeeting(meetingId);
+  // The screen video, if any, goes first: it only lives in this browser until it is saved.
+  const video = meeting?.videoFile ? undefined : await getVideo(meetingId);
+  if (video) {
+    await updateMeeting(meetingId, { phase: "uploading" });
+    await uploadMeetingAudio(meetingId, asTypedBlob(video), undefined, "video");
+    await deleteLocalVideo(meetingId);
+  }
+  if (meeting?.audioFile) return true;
   const local = await getAudio(meetingId);
   if (!local) return false;
   await updateMeeting(meetingId, { phase: "uploading" });

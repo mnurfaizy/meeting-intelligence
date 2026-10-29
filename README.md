@@ -17,6 +17,7 @@ You can also **Import Recording** to transcribe an existing audio or video file 
 | --- | --- |
 | Meetings, transcript lines, summaries, Assistant chats | **Turso** (libSQL) — or a local `local.db` SQLite file when Turso is not configured |
 | Audio files | Plain files in the **recordings folder** (`AUDIO_DIR`, default `./recordings`), e.g. `2026-10-29_1021_5542c12e.webm` |
+| Screen video (optional) | Same folder, e.g. `2026-10-29_1021_5542c12e-video.webm` |
 | 10-minute backup parts while recording | The browser (IndexedDB), deleted once the full recording is saved |
 
 Recordings are first kept in the browser, then moved into the recordings folder when you stop (or import); if that fails, they stay in the browser and are moved on the next try. Recordings made by the earlier browser-only version are moved into the folder automatically. Deleting a meeting also deletes its audio file.
@@ -47,6 +48,7 @@ Open http://localhost:3000 in **Chrome or Edge on desktop**.
 
 - In the share dialog, choose the **Chrome Tab** that has the meeting and keep **"Also share tab audio"** turned on. Windows and full-screen sharing usually do not carry audio.
 - Keep the Meeting Intelligence tab open while recording. Every 10 minutes a backup part is saved in the browser; if the tab closes mid-recording, the meeting is transcribed from those parts when you come back (speaker labels may then differ between parts).
+- Turn on **Record screen video** to also save the tab's picture (about 450 MB per hour). The meeting then shows a video player, and transcription still uses the small audio-only file.
 - Clicking Chrome's own **Stop sharing** bar also stops the recording.
 - Maximum recording length is 6 hours.
 

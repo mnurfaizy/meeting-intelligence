@@ -13,7 +13,13 @@ export type RecordedChunk = {
   durationMs: number;
 };
 
-export type RecordingResult = { blob: Blob; mimeType: string; durationMs: number };
+export type RecordingResult = {
+  blob: Blob;
+  mimeType: string;
+  durationMs: number;
+  /** Screen video with the same mixed audio, when video recording was turned on. */
+  video?: { blob: Blob; mimeType: string };
+};
 
 type Callbacks = {
   onChunk: (chunk: RecordedChunk) => void;
@@ -29,22 +35,27 @@ export class NoTabAudioError extends Error {
   }
 }
 
-function pickMimeType() {
-  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
-  return candidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
-}
+const pickMimeType = (candidates: string[]) => candidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
+
+/** About 450 MB per hour: sharp enough for slides and shared screens. */
+const VIDEO_BITS_PER_SECOND = 1_000_000;
 
 /**
  * Records a shared browser tab's audio, mixed with the user's microphone.
  *
  * Two MediaRecorders run on the same mixed stream: one produces the full file for
  * playback, the other is restarted every CHUNK_MS so each slice is a valid file
- * that can be transcribed on its own.
+ * that can be transcribed on its own. With video on, a third one records the tab's
+ * picture together with the mixed audio.
  */
 export class TabRecorder {
   mimeType = "";
   sourceLabel = "";
   micActive = false;
+  videoActive = false;
+  private videoMimeType = "";
+  private video: MediaRecorder | null = null;
+  private videoParts: Blob[] = [];
 
   private ctx: AudioContext | null = null;
   private display: MediaStream | null = null;
@@ -78,14 +89,15 @@ export class TabRecorder {
     return Math.min(1, Math.sqrt(sum / this.levelBuffer.length) * 5);
   }
 
-  async start(includeMic: boolean) {
+  async start(includeMic: boolean, includeVideo = false) {
     // Created before any await so it is tied to the click and not left suspended.
     const ctx = new AudioContext();
     this.ctx = ctx;
 
     try {
       const options = {
-        video: { frameRate: 1 },
+        // Chrome always shares a picture; without video recording, 1 fps keeps that nearly free.
+        video: includeVideo ? { frameRate: { ideal: 15, max: 30 } } : { frameRate: 1 },
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
         preferCurrentTab: false,
         selfBrowserSurface: "exclude",
@@ -128,8 +140,13 @@ export class TabRecorder {
       }
       this.mixed = destination.stream;
 
-      this.mimeType = pickMimeType();
+      this.mimeType = pickMimeType(["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]);
       if (!this.mimeType) throw new Error("This browser cannot record audio. Please use Chrome or Edge.");
+      const picture = display.getVideoTracks()[0];
+      if (includeVideo && picture) {
+        this.videoMimeType = pickMimeType(["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]);
+        this.videoActive = Boolean(this.videoMimeType);
+      }
 
       // Ending the share from Chrome's own "Stop sharing" bar stops the recording.
       for (const track of display.getTracks()) {
@@ -140,6 +157,15 @@ export class TabRecorder {
       this.full = new MediaRecorder(this.mixed, { mimeType: this.mimeType, audioBitsPerSecond: 48000 });
       this.full.ondataavailable = (e) => e.data.size && this.fullParts.push(e.data);
       this.full.start(1000);
+      if (this.videoActive) {
+        this.video = new MediaRecorder(new MediaStream([picture, ...this.mixed.getAudioTracks()]), {
+          mimeType: this.videoMimeType,
+          videoBitsPerSecond: VIDEO_BITS_PER_SECOND,
+          audioBitsPerSecond: 64000,
+        });
+        this.video.ondataavailable = (e) => e.data.size && this.videoParts.push(e.data);
+        this.video.start(1000);
+      }
       this.startChunk();
 
       this.timers.push(setInterval(() => this.rotateChunk(), CHUNK_MS));
@@ -156,16 +182,26 @@ export class TabRecorder {
       this.timers.forEach((t) => clearTimeout(t));
       this.timers = [];
 
-      const fullStopped = new Promise<void>((resolve) => {
-        if (!this.full || this.full.state === "inactive") return resolve();
-        this.full.addEventListener("stop", () => resolve(), { once: true });
-        this.full.stop();
-      });
+      const stopped = (rec: MediaRecorder | null) =>
+        new Promise<void>((resolve) => {
+          if (!rec || rec.state === "inactive") return resolve();
+          rec.addEventListener("stop", () => resolve(), { once: true });
+          rec.stop();
+        });
+      const fullStopped = stopped(this.full);
+      const videoStopped = stopped(this.video);
       this.endChunk(durationMs);
 
-      await Promise.all([fullStopped, ...this.chunkDone]);
+      await Promise.all([fullStopped, videoStopped, ...this.chunkDone]);
       this.releaseDevices();
-      return { blob: new Blob(this.fullParts, { type: this.mimeType }), mimeType: this.mimeType, durationMs };
+      return {
+        blob: new Blob(this.fullParts, { type: this.mimeType }),
+        mimeType: this.mimeType,
+        durationMs,
+        video: this.videoParts.length
+          ? { blob: new Blob(this.videoParts, { type: this.videoMimeType }), mimeType: this.videoMimeType }
+          : undefined,
+      };
     })();
     return this.stopPromise;
   }

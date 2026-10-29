@@ -35,12 +35,17 @@ function extensionFor(mimeType: string, originalName?: string) {
   return fromName || EXTENSIONS[mimeType.split(";")[0].trim().toLowerCase()] || "bin";
 }
 
-/** e.g. "2026-10-29_1407_3f2a9c1b.webm" — sorts by date and never changes when a meeting is renamed. */
-function fileNameFor(meetingId: string, createdAt: number, ext: string) {
+export type MediaKind = "audio" | "video";
+
+/**
+ * e.g. "2026-10-29_1407_3f2a9c1b.webm" and, for screen video, "2026-10-29_1407_3f2a9c1b-video.webm".
+ * Sorts by date and never changes when a meeting is renamed.
+ */
+function fileNameFor(meetingId: string, createdAt: number, ext: string, kind: MediaKind) {
   const d = new Date(createdAt);
   const pad = (n: number) => String(n).padStart(2, "0");
   const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
-  return `${stamp}_${meetingId.slice(0, 8)}.${ext}`;
+  return `${stamp}_${meetingId.slice(0, 8)}${kind === "video" ? "-video" : ""}.${ext}`;
 }
 
 /** Only bare file names inside AUDIO_DIR are ever read or deleted. */
@@ -57,10 +62,10 @@ export function mimeForFile(fileName: string) {
 /** Streams an upload to disk; writes to a temp file first so a failed upload never leaves a half file. */
 export async function saveAudio(
   body: ReadableStream<Uint8Array>,
-  opts: { meetingId: string; createdAt: number; mimeType: string; originalName?: string },
+  opts: { meetingId: string; createdAt: number; mimeType: string; originalName?: string; kind: MediaKind },
 ) {
   await mkdir(/*turbopackIgnore: true*/ AUDIO_DIR, { recursive: true });
-  const fileName = fileNameFor(opts.meetingId, opts.createdAt, extensionFor(opts.mimeType, opts.originalName));
+  const fileName = fileNameFor(opts.meetingId, opts.createdAt, extensionFor(opts.mimeType, opts.originalName), opts.kind);
   const target = audioPath(fileName);
   const temp = `${target}.part`;
   try {

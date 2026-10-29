@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { putAudio, putChunk } from "./db";
+import { putAudio, putChunk, putVideo } from "./db";
 import { createMeeting, updateMeeting } from "./store";
 import { finalizeMeeting } from "./pipeline";
 import { TabRecorder } from "./recorder";
@@ -10,6 +10,7 @@ export type RecordingState = {
   meetingId: string;
   sourceLabel: string;
   micActive: boolean;
+  videoActive: boolean;
   stopping: boolean;
 };
 
@@ -39,6 +40,9 @@ export function useRecording(onError: (message: string) => void) {
       if (result.blob.size > 0) {
         await putAudio({ meetingId, blob: result.blob, mimeType: result.mimeType });
       }
+      if (result.video?.blob.size) {
+        await putVideo({ meetingId, blob: result.video.blob, mimeType: result.video.mimeType });
+      }
       await updateMeeting(meetingId, { status: "processing", durationMs: result.durationMs });
       void finalizeMeeting(meetingId);
     } catch (err) {
@@ -56,7 +60,7 @@ export function useRecording(onError: (message: string) => void) {
   stopRef.current = stop;
 
   const start = useCallback(
-    async (includeMic: boolean) => {
+    async (includeMic: boolean, includeVideo: boolean) => {
       if (recorderRef.current) return null;
       const meetingId = crypto.randomUUID();
       const recorder = new TabRecorder({
@@ -68,7 +72,7 @@ export function useRecording(onError: (message: string) => void) {
       });
 
       try {
-        await recorder.start(includeMic);
+        await recorder.start(includeMic, includeVideo);
       } catch (err) {
         onError(describeStartError(err));
         return null;
@@ -87,7 +91,13 @@ export function useRecording(onError: (message: string) => void) {
         summaryStatus: "idle",
         chat: [],
       });
-      setState({ meetingId, sourceLabel: recorder.sourceLabel, micActive: recorder.micActive, stopping: false });
+      setState({
+        meetingId,
+        sourceLabel: recorder.sourceLabel,
+        micActive: recorder.micActive,
+        videoActive: recorder.videoActive,
+        stopping: false,
+      });
       return meetingId;
     },
     [onError],
