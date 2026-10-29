@@ -1,4 +1,4 @@
-import { MODEL, HttpError, errorResponse, getClient } from "@/lib/gemini";
+import { MODEL, HttpError, errorResponse, getClient, withRetry } from "@/lib/gemini";
 import type { ChatMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     if (!messages?.length) throw new HttpError(400, "No question was sent.");
 
     const ai = getClient();
-    const stream = await ai.models.generateContentStream({
+    const stream = await withRetry(() => ai.models.generateContentStream({
       model: MODEL,
       contents: messages.map((m) => ({ role: m.role, parts: [{ text: m.text }] })),
       config: {
@@ -29,7 +29,7 @@ ${summary ? `<summary>\n${summary}\n</summary>\n\n` : ""}<transcript>
 ${transcript}
 </transcript>`,
       },
-    });
+    }));
 
     const encoder = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({

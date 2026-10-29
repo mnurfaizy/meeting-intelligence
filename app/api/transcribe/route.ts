@@ -1,5 +1,5 @@
 import { createPartFromUri, type GoogleGenAI, type Part } from "@google/genai";
-import { MODEL, HttpError, errorResponse, getClient } from "@/lib/gemini";
+import { MODEL, HttpError, errorResponse, getClient, withRetry } from "@/lib/gemini";
 import { parseClock } from "@/lib/format";
 import type { Segment } from "@/lib/types";
 
@@ -76,11 +76,13 @@ async function toPart(ai: GoogleGenAI, file: Blob, mimeType: string) {
 async function transcribe(ai: GoogleGenAI, file: Blob, mimeType: string, context: string) {
   const { part, cleanup } = await toPart(ai, file, mimeType);
   try {
-    const res = await ai.models.generateContent({
-      model: MODEL,
-      contents: [{ role: "user", parts: [part, { text: prompt(context) }] }],
-      config: { responseMimeType: "application/json", responseJsonSchema: SCHEMA, temperature: 0.2 },
-    });
+    const res = await withRetry(() =>
+      ai.models.generateContent({
+        model: MODEL,
+        contents: [{ role: "user", parts: [part, { text: prompt(context) }] }],
+        config: { responseMimeType: "application/json", responseJsonSchema: SCHEMA, temperature: 0.2 },
+      }),
+    );
     return JSON.parse(res.text || "{}") as { segments?: { start: string; speaker: string; text: string }[] };
   } finally {
     await cleanup?.();

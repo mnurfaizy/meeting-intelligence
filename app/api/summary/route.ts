@@ -1,4 +1,4 @@
-import { MODEL, HttpError, errorResponse, getClient } from "@/lib/gemini";
+import { MODEL, HttpError, errorResponse, getClient, withRetry } from "@/lib/gemini";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -19,7 +19,7 @@ export async function POST(req: Request) {
     if (!transcript?.trim()) throw new HttpError(400, "The transcript is empty.");
 
     const ai = getClient();
-    const res = await ai.models.generateContent({
+    const res = await withRetry(() => ai.models.generateContent({
       model: MODEL,
       contents: [
         {
@@ -46,7 +46,7 @@ ${transcript}
         },
       ],
       config: { responseMimeType: "application/json", responseJsonSchema: SCHEMA, temperature: 0.3 },
-    });
+    }));
 
     const data = JSON.parse(res.text || "{}") as { title?: string; summary?: string };
     return Response.json({ title: data.title?.trim() ?? "", summary: data.summary?.trim() ?? "" });

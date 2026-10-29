@@ -22,6 +22,29 @@ export function getClient() {
   return new GoogleGenAI({ apiKey });
 }
 
+/** Network blips, rate limits and "model overloaded" are worth another try. */
+function isTransient(err: unknown) {
+  const text = `${String(err)} ${String((err as { cause?: unknown })?.cause ?? "")}`;
+  const status = (err as { status?: number })?.status;
+  return (
+    status === 429 ||
+    (typeof status === "number" && status >= 500) ||
+    /fetch failed|ECONNRESET|ETIMEDOUT|UND_ERR|socket hang up|overloaded|UNAVAILABLE|RESOURCE_EXHAUSTED/i.test(text)
+  );
+}
+
+export async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (i >= attempts || !isTransient(err)) throw err;
+      console.warn(`Gemini call failed (attempt ${i}/${attempts}), retrying:`, String(err));
+      await new Promise((r) => setTimeout(r, 1500 * 2 ** (i - 1)));
+    }
+  }
+}
+
 export function errorResponse(err: unknown) {
   console.error(err);
   const status = err instanceof HttpError ? err.status : 500;

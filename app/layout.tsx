@@ -12,7 +12,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={dmSans.variable}>
-      <body className="font-sans antialiased">{children}</body>
+      {/* Browser extensions inject attributes into <body>; don't flag that as a hydration error. */}
+      <body className="font-sans antialiased" suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }
