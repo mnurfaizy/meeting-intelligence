@@ -11,7 +11,22 @@ Record any meeting that runs in a browser tab (Google Meet, Zoom web, Teams…),
 
 You can also **Import Recording** to transcribe an existing audio or video file (m4a, mp3, wav, mp4, webm…). The file is sent as-is.
 
-Meetings, audio and chats are stored in your browser (IndexedDB). The server stores nothing; audio is sent to AssemblyAI and transcript text to Gemini.
+## Where data is stored
+
+| Data | Stored in |
+| --- | --- |
+| Meetings, transcript lines, summaries, Assistant chats | **Turso** (libSQL) — or a local `local.db` SQLite file when Turso is not configured |
+| Audio files and 10-minute backup parts | The browser that recorded/imported them (IndexedDB) |
+
+Audio is also sent to AssemblyAI for transcription, and transcript text to Gemini for the summary and chat.
+
+The database has three tables, easy to query or export with any SQLite tool:
+
+- `meetings` — one row per meeting (title, dates, duration, status, summary)
+- `transcript_segments` — one row per transcript line (`meeting_id`, `start_sec`, `speaker`, `text`)
+- `chat_messages` — one row per Assistant message (`meeting_id`, `role`, `text`)
+
+Meetings saved by the earlier browser-only version are moved into the database automatically the first time the app is opened.
 
 ## Setup
 
@@ -39,6 +54,8 @@ Open http://localhost:3000 in **Chrome or Edge on desktop**.
 | `ASSEMBLYAI_API_KEY` | — | Required. Transcription. |
 | `GEMINI_API_KEY` | — | Required. Summary and Assistant chat. |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model for summary and chat. |
+| `TURSO_DATABASE_URL` | `file:local.db` | Turso database URL (`libsql://…`). Empty uses a local SQLite file. |
+| `TURSO_AUTH_TOKEN` | — | Turso auth token. |
 
 ## Project layout
 
@@ -48,9 +65,12 @@ app/api/transcripts          upload audio -> start an AssemblyAI job
 app/api/transcripts/[id]     poll a job, return transcript segments
 app/api/summary              transcript -> title + Markdown summary (Gemini)
 app/api/chat                 streaming Q&A over one meeting (Gemini)
+app/api/meetings             list / create / read / update / delete meetings
+lib/server/db.ts             database schema and queries (Turso / libSQL)
+lib/store.ts                 browser client for /api/meetings
 lib/recorder.ts              tab + mic capture, 10-minute backup parts
 lib/pipeline.ts              transcription, summary and chat client
-lib/db.ts                    IndexedDB storage
+lib/db.ts                    IndexedDB storage for audio
 components/                  sidebar, meeting view, recording view
 ```
 

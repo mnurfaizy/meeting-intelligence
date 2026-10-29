@@ -2,7 +2,7 @@
 
 import { MessageSquare, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { updateMeeting } from "@/lib/db";
+import { appendMessages } from "@/lib/store";
 import { transcriptToText } from "@/lib/format";
 import { streamChat } from "@/lib/pipeline";
 import type { ChatMessage, Meeting } from "@/lib/types";
@@ -31,15 +31,16 @@ export function AssistantPanel({ meeting }: { meeting: Meeting }) {
     if (!text || streaming !== null) return;
     setInput("");
     setError(null);
-    const messages: ChatMessage[] = [...meeting.chat, { role: "user", text, at: Date.now() }];
-    await updateMeeting(meeting.id, { chat: messages });
+    const asked: ChatMessage = { role: "user", text, at: Date.now() };
+    const messages = [...meeting.chat, asked];
     setStreaming("");
     try {
+      await appendMessages(meeting.id, [asked]);
       const reply = await streamChat(
         { title: meeting.title, transcript: transcriptToText(meeting.transcript), summary: meeting.summary, messages },
         setStreaming,
       );
-      await updateMeeting(meeting.id, { chat: [...messages, { role: "model", text: reply, at: Date.now() }] });
+      await appendMessages(meeting.id, [{ role: "model", text: reply, at: Date.now() }]);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

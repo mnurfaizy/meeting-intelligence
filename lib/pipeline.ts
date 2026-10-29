@@ -1,6 +1,7 @@
 "use client";
 
-import { getAudio, getChunks, getMeeting, updateMeeting } from "./db";
+import { getAudio, getChunks } from "./db";
+import { getMeeting, updateMeeting } from "./store";
 import { transcriptToText } from "./format";
 import type { ChatMessage, Segment } from "./types";
 

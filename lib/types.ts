@@ -28,6 +28,12 @@ export interface Meeting {
   chat: ChatMessage[];
 }
 
+/** What the sidebar needs: everything except the transcript and chat, plus chat stats. */
+export type MeetingListItem = Omit<Meeting, "transcript" | "chat"> & {
+  chatCount: number;
+  lastQuestion?: string;
+};
+
 /**
  * A 10-minute slice saved while recording. Normally only a safety net: if the tab closes
  * before the full recording is saved, the meeting is transcribed from these instead.

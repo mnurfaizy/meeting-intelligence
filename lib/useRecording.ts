@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { putAudio, putChunk, putMeeting, updateMeeting } from "./db";
+import { putAudio, putChunk } from "./db";
+import { createMeeting, updateMeeting } from "./store";
 import { finalizeMeeting } from "./pipeline";
 import { TabRecorder } from "./recorder";
 
@@ -75,7 +76,7 @@ export function useRecording(onError: (message: string) => void) {
 
       recorderRef.current = recorder;
       meetingIdRef.current = meetingId;
-      await putMeeting({
+      await createMeeting({
         id: meetingId,
         title: "",
         createdAt: Date.now(),

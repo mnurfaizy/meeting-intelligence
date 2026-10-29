@@ -3,12 +3,12 @@
 import { AudioLines, Clock, MessageSquare, Mic, PanelLeftClose, Search, Square, TriangleAlert, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtClock, fmtDateGroup, fmtTime } from "@/lib/format";
-import type { Meeting } from "@/lib/types";
+import type { MeetingListItem } from "@/lib/types";
 import type { RecordingState } from "@/lib/useRecording";
 import { Spinner, Toggle } from "./ui";
 
 type Props = {
-  meetings: Meeting[] | null;
+  meetings: MeetingListItem[] | null;
   selectedId: string | null;
   onSelect: (id: string, tab?: "summary" | "assistant") => void;
   recording: RecordingState | null;
@@ -31,14 +31,14 @@ export function Sidebar(props: Props) {
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (meetings ?? []).filter((m) => {
-      if (list === "chats" && m.chat.length === 0) return false;
+      if (list === "chats" && m.chatCount === 0) return false;
       if (!q) return true;
       return [m.title, m.summary ?? "", fmtTime(m.createdAt)].some((s) => s.toLowerCase().includes(q));
     });
   }, [meetings, list, query]);
 
   const groups = useMemo(() => {
-    const byDate = new Map<string, Meeting[]>();
+    const byDate = new Map<string, MeetingListItem[]>();
     for (const m of visible) {
       const key = fmtDateGroup(m.createdAt);
       byDate.set(key, [...(byDate.get(key) ?? []), m]);
@@ -185,8 +185,8 @@ export function Sidebar(props: Props) {
   );
 }
 
-function MeetingItem({ meeting: m, active, showChat, onClick }: { meeting: Meeting; active: boolean; showChat: boolean; onClick: () => void }) {
-  const lastQuestion = [...m.chat].reverse().find((c) => c.role === "user")?.text;
+function MeetingItem({ meeting: m, active, showChat, onClick }: { meeting: MeetingListItem; active: boolean; showChat: boolean; onClick: () => void }) {
+  const lastQuestion = m.lastQuestion;
   return (
     <button
       type="button"
@@ -207,7 +207,7 @@ function MeetingItem({ meeting: m, active, showChat, onClick }: { meeting: Meeti
   );
 }
 
-function StatusIcon({ meeting: m }: { meeting: Meeting }) {
+function StatusIcon({ meeting: m }: { meeting: MeetingListItem }) {
   if (m.status === "recording") return <span className="mt-1.5 size-2 shrink-0 animate-pulse rounded-full bg-red-500" title="Recording" />;
   if (m.status === "processing" || m.summaryStatus === "generating")
     return <Spinner className="mt-1 size-3.5 shrink-0 text-accent-hover" />;

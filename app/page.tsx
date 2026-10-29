@@ -5,15 +5,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MeetingView } from "@/components/MeetingView";
 import { RecordingView } from "@/components/RecordingView";
 import { Sidebar } from "@/components/Sidebar";
-import { EmptyState } from "@/components/ui";
-import { putAudio, putMeeting } from "@/lib/db";
-import { useMeetings } from "@/lib/hooks";
+import { EmptyState, Spinner } from "@/components/ui";
+import { hasLocalAudio, putAudio } from "@/lib/db";
+import { useMeeting, useMeetings } from "@/lib/hooks";
 import { finalizeMeeting } from "@/lib/pipeline";
+import { createMeeting, migrateBrowserMeetings } from "@/lib/store";
 import { useRecording } from "@/lib/useRecording";
 
 export default function Home() {
   const meetings = useMeetings();
   const [selected, setSelected] = useState<{ id: string; tab: "summary" | "assistant" } | null>(null);
+  const meeting = useMeeting(selected?.id ?? null);
   const [includeMic, setIncludeMic] = useState(true);
   const [starting, setStarting] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -28,15 +30,24 @@ export default function Home() {
     return () => clearTimeout(id);
   }, [toast]);
 
-  // Resume meetings that were interrupted by a reload or a closed tab.
+  // On first load: move meetings from the browser-only version into the database, then resume
+  // meetings interrupted by a reload or a closed tab. Only this browser has their audio, so
+  // meetings recorded elsewhere are left alone.
   const resumed = useRef(false);
   useEffect(() => {
     if (!meetings || resumed.current) return;
     resumed.current = true;
-    for (const m of meetings) {
-      if (m.status === "recording" || m.status === "processing") void finalizeMeeting(m.id);
-    }
-  }, [meetings]);
+    void (async () => {
+      try {
+        await migrateBrowserMeetings();
+      } catch (err) {
+        showError(`Could not move saved meetings to the database: ${err instanceof Error ? err.message : err}`);
+      }
+      for (const m of meetings) {
+        if ((m.status === "recording" || m.status === "processing") && (await hasLocalAudio(m.id))) void finalizeMeeting(m.id);
+      }
+    })();
+  }, [meetings, showError]);
 
   const startRecording = async () => {
     setStarting(true);
@@ -47,25 +58,31 @@ export default function Home() {
 
   const importFile = async (file: File) => {
     const id = crypto.randomUUID();
-    await putMeeting({
-      id,
-      title: file.name.replace(/\.[^.]+$/, ""),
-      createdAt: Date.now(),
-      durationMs: 0,
-      source: "import",
-      status: "processing",
-      transcript: [],
-      summaryStatus: "idle",
-      chat: [],
-    });
-    // AssemblyAI accepts the original file as-is (m4a, mp3, mp4, webm…), so no conversion is needed.
-    await putAudio({ meetingId: id, blob: file, mimeType: file.type || "audio/mpeg" });
+    try {
+      // AssemblyAI accepts the original file as-is (m4a, mp3, mp4, webm…), so no conversion is needed.
+      await putAudio({ meetingId: id, blob: file, mimeType: file.type || "audio/mpeg" });
+      await createMeeting({
+        id,
+        title: file.name.replace(/\.[^.]+$/, ""),
+        createdAt: Date.now(),
+        durationMs: 0,
+        source: "import",
+        status: "processing",
+        transcript: [],
+        summaryStatus: "idle",
+        chat: [],
+      });
+    } catch (err) {
+      showError(`Could not save the meeting: ${err instanceof Error ? err.message : err}`);
+      return;
+    }
     setSelected({ id, tab: "summary" });
     void finalizeMeeting(id);
   };
 
-  const meeting = meetings?.find((m) => m.id === selected?.id) ?? null;
-  const isRecordingThis = rec.state && meeting?.id === rec.state.meetingId;
+  const isRecordingThis = rec.state && selected?.id === rec.state.meetingId;
+  // The previous meeting stays in state until the newly selected one has loaded.
+  const shown = meeting?.id === selected?.id ? meeting : null;
 
   return (
     <div className="flex min-h-screen flex-col gap-3 p-3 lg:h-screen lg:flex-row">
@@ -96,10 +113,14 @@ export default function Home() {
       )}
 
       <main className="flex min-h-0 min-w-0 flex-1">
-        {rec.state && (isRecordingThis || !meeting) ? (
+        {rec.state && (isRecordingThis || !selected) ? (
           <RecordingView recording={rec.state} elapsed={rec.elapsed} level={rec.level} onStop={rec.stop} />
-        ) : meeting ? (
-          <MeetingView key={`${meeting.id}:${selected?.tab}`} meeting={meeting} initialTab={selected?.tab ?? "summary"} onDeleted={() => setSelected(null)} />
+        ) : shown ? (
+          <MeetingView key={`${shown.id}:${selected?.tab}`} meeting={shown} initialTab={selected?.tab ?? "summary"} onDeleted={() => setSelected(null)} />
+        ) : selected ? (
+          <section className="flex flex-1 items-center justify-center rounded-2xl bg-panel text-gray-500">
+            <Spinner className="size-6" />
+          </section>
         ) : (
           <section className="flex flex-1 items-center justify-center rounded-2xl bg-panel">
             <EmptyState icon={<AudioLines className="size-6" />} title="Record your next meeting">

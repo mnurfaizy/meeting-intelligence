@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CHANGE_EVENT, getAudio, getChunks, listMeetings } from "./db";
-import type { Chunk, Meeting } from "./types";
+import { getAudio, getChunks } from "./db";
+import { CHANGE_EVENT } from "./events";
+import { getMeeting, listMeetings } from "./store";
+import type { Chunk, Meeting, MeetingListItem } from "./types";
 
 /** Re-runs `load` on every database write. */
 function useLive<T>(load: () => Promise<T>, initial: T, deps: unknown[]) {
@@ -22,7 +24,12 @@ function useLive<T>(load: () => Promise<T>, initial: T, deps: unknown[]) {
 }
 
 export function useMeetings() {
-  return useLive<Meeting[] | null>(listMeetings, null, []);
+  return useLive<MeetingListItem[] | null>(listMeetings, null, []);
+}
+
+/** Full meeting (with transcript and chat); null while loading or when none is selected. */
+export function useMeeting(id: string | null) {
+  return useLive<Meeting | null>(async () => (id ? ((await getMeeting(id)) ?? null) : null), null, [id]);
 }
 
 export function useChunks(meetingId: string | null) {

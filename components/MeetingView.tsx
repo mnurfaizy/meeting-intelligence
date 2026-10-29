@@ -2,7 +2,7 @@
 
 import { Download, Pencil, RefreshCw, Sparkles, Trash2, TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
-import { deleteMeeting, updateMeeting } from "@/lib/db";
+import { deleteMeeting, updateMeeting } from "@/lib/store";
 import { fmtDateTime, fmtDuration } from "@/lib/format";
 import { useAudioUrl } from "@/lib/hooks";
 import { regenerateSummary } from "@/lib/pipeline";
@@ -196,7 +196,9 @@ function AudioCard({ meeting, audioRef }: { meeting: Meeting; audioRef: React.Re
           />
         ) : (
           <p className="rounded-xl bg-panel-2/60 px-4 py-3 text-sm text-gray-500">
-            {meeting.status === "recording" ? "Audio will be available when the recording stops." : "No audio file saved for this meeting."}
+            {meeting.status === "recording"
+              ? "Audio will be available when the recording stops."
+              : "The audio is stored only in the browser where this meeting was recorded or imported."}
           </p>
         )}
       </div>
