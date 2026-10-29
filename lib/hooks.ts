@@ -11,7 +11,11 @@ function useLive<T>(load: () => Promise<T>, initial: T, deps: unknown[]) {
   const [value, setValue] = useState<T>(initial);
   useEffect(() => {
     let cancelled = false;
-    const refresh = () => load().then((v) => !cancelled && setValue(v));
+    // If the server is briefly unreachable (e.g. restarting), keep showing the last data.
+    const refresh = () =>
+      load()
+        .then((v) => !cancelled && setValue(v))
+        .catch((err) => console.warn("Could not refresh:", err));
     refresh();
     window.addEventListener(CHANGE_EVENT, refresh);
     return () => {
