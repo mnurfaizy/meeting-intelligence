@@ -50,7 +50,7 @@ export function AssistantPanel({ meeting }: { meeting: Meeting }) {
 
   if (!ready) {
     return (
-      <EmptyState icon={<MessageSquare className="size-6" />} title="Assistant not ready yet">
+      <EmptyState icon={<MessageSquare size={22} />} title="Assistant not ready yet">
         You can ask questions about this meeting once the transcript is ready.
       </EmptyState>
     );
@@ -60,17 +60,19 @@ export function AssistantPanel({ meeting }: { meeting: Meeting }) {
     <div className="flex h-full flex-col">
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-6 py-5">
         {meeting.chat.length === 0 && streaming === null ? (
-          <div className="mx-auto flex h-full max-w-md flex-col justify-center text-center">
-            <MessageSquare className="mx-auto mb-3 size-7 text-accent-hover" />
-            <h3 className="font-medium text-gray-100">Ask anything about this meeting</h3>
-            <p className="mt-1 text-sm text-gray-400">Answers are based only on the transcript, with timestamps.</p>
-            <div className="mt-5 space-y-2">
+          <div className="empty mx-auto h-full max-w-md justify-center">
+            <div className="empty-icon">
+              <MessageSquare size={22} />
+            </div>
+            <h3>Ask anything about this meeting</h3>
+            <p>Answers are based only on the transcript, with timestamps.</p>
+            <div className="mt-2 flex w-full flex-col gap-2">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s}
                   type="button"
                   onClick={() => void ask(s)}
-                  className="block w-full rounded-lg border border-line px-3 py-2 text-left text-sm text-gray-300 hover:border-accent/60 hover:bg-white/5"
+                  className="rounded-[var(--radius-md)] border border-line bg-white px-3 py-2.5 text-left font-bold transition-colors hover:border-primary hover:bg-primary-soft"
                 >
                   {s}
                 </button>
@@ -78,14 +80,12 @@ export function AssistantPanel({ meeting }: { meeting: Meeting }) {
             </div>
           </div>
         ) : (
-          <div className="mx-auto max-w-3xl space-y-5">
+          <div className="mx-auto flex max-w-3xl flex-col gap-5">
             {meeting.chat.map((m, i) => (
               <Bubble key={i} message={m} />
             ))}
-            {streaming !== null && (
-              <Bubble message={{ role: "model", text: streaming, at: 0 }} pending={streaming === ""} />
-            )}
-            {error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
+            {streaming !== null && <Bubble message={{ role: "model", text: streaming, at: 0 }} pending={streaming === ""} />}
+            {error && <p className="rounded-[var(--radius-md)] bg-danger-soft px-4 py-3 text-[13px] font-semibold text-danger">{error}</p>}
           </div>
         )}
         <div ref={bottom} />
@@ -98,7 +98,7 @@ export function AssistantPanel({ meeting }: { meeting: Meeting }) {
           void ask(input);
         }}
       >
-        <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-xl border border-line bg-panel-2/60 p-2 focus-within:border-accent">
+        <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-[var(--radius-xl)] border border-line bg-white py-2 pr-2 pl-5 shadow-[var(--shadow-raised)] focus-within:border-primary">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -110,15 +110,16 @@ export function AssistantPanel({ meeting }: { meeting: Meeting }) {
             }}
             rows={1}
             placeholder="Ask about this meeting…"
-            className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none"
+            className="max-h-40 min-h-10 flex-1 resize-none bg-transparent py-2.5 font-semibold outline-none placeholder:font-medium placeholder:text-muted"
           />
           <button
             type="submit"
             disabled={!input.trim() || streaming !== null}
             title="Send"
-            className="grid size-9 place-items-center rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-40"
+            aria-label="Send"
+            className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-[var(--shadow-play)] transition-colors hover:bg-primary-hover"
           >
-            {streaming !== null ? <Spinner /> : <Send className="size-4" />}
+            {streaming !== null ? <Spinner /> : <Send size={16} />}
           </button>
         </div>
       </form>
@@ -130,13 +131,15 @@ function Bubble({ message, pending }: { message: ChatMessage; pending?: boolean 
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <p className="max-w-[85%] rounded-2xl rounded-br-md bg-[#163b3c] px-4 py-2.5 text-[0.925rem] whitespace-pre-wrap text-gray-100">{message.text}</p>
+        <p className="max-w-[85%] rounded-[var(--radius-lg)] rounded-br-[var(--radius-sm)] bg-primary-soft px-4 py-2.5 font-semibold whitespace-pre-wrap text-ink">
+          {message.text}
+        </p>
       </div>
     );
   }
   return pending ? (
-    <div className="flex items-center gap-2 text-sm text-gray-400">
-      <Spinner className="size-3.5" /> Thinking…
+    <div className="flex items-center gap-2 text-[13px] font-semibold text-ink-2">
+      <Spinner size={14} /> Thinking…
     </div>
   ) : (
     <Markdown>{message.text}</Markdown>

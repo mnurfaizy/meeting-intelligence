@@ -1,28 +1,24 @@
 "use client";
 
-import { Check, Copy, LoaderCircle } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { Check, Copy, X } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 export function IconButton({
   title,
   onClick,
   disabled,
+  danger,
   children,
 }: {
   title: string;
   onClick?: () => void;
   disabled?: boolean;
+  danger?: boolean;
   children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      disabled={disabled}
-      className="grid size-8 place-items-center rounded-md text-gray-400 transition-colors hover:bg-white/5 hover:text-gray-200 disabled:pointer-events-none disabled:opacity-30"
-    >
+    <button type="button" title={title} aria-label={title} onClick={onClick} disabled={disabled} className={`icon-btn ${danger ? "danger" : ""}`}>
       {children}
     </button>
   );
@@ -41,7 +37,7 @@ export function CopyButton({ text, disabled }: { text: string; disabled?: boolea
         setTimeout(() => setCopied(false), 1500);
       }}
     >
-      {copied ? <Check className="size-4 text-accent-hover" /> : <Copy className="size-4" />}
+      {copied ? <Check size={16} className="text-primary" /> : <Copy size={16} />}
     </IconButton>
   );
 }
@@ -57,15 +53,8 @@ export function downloadText(filename: string, text: string, type = "text/plain"
 
 export function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 ${checked ? "bg-accent" : "bg-[#3a3a40]"}`}
-    >
-      <span className={`absolute top-1 left-1 size-4 rounded-full bg-white transition-transform ${checked ? "translate-x-5" : ""}`} />
+    <button type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)} className={`toggle-track ${checked ? "on" : ""}`}>
+      <span className="toggle-thumb" />
     </button>
   );
 }
@@ -83,22 +72,84 @@ export function EmptyState({
   tone?: "default" | "error";
 }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
-      <div
-        className={
-          tone === "error"
-            ? "mb-4 text-red-400"
-            : "mb-4 grid size-14 place-items-center rounded-2xl border border-line bg-[#17292a] text-accent-hover"
-        }
-      >
-        {icon}
-      </div>
-      <h3 className="text-[1.05rem] font-medium text-gray-100">{title}</h3>
-      {children && <div className="mt-2 max-w-sm text-sm leading-relaxed text-gray-400">{children}</div>}
+    <div className="empty h-full justify-center">
+      <div className={`empty-icon ${tone === "error" ? "danger" : ""}`}>{icon}</div>
+      <h3>{title}</h3>
+      {children && <div className="empty-body">{children}</div>}
     </div>
   );
 }
 
-export function Spinner({ className = "size-4" }: { className?: string }) {
-  return <LoaderCircle className={`${className} animate-spin`} />;
+export function Spinner({ size = 16 }: { size?: number }) {
+  return <span className="spinner inline-block" style={{ width: size, height: size, borderWidth: size < 24 ? 2 : 3 }} />;
+}
+
+export function Modal({ title, onClose, children, footer, width = 440 }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; width?: number }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return createPortal(
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: width }} role="dialog" aria-modal="true">
+        <div className="modal-header">
+          <h2>{title}</h2>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="modal-body">{children}</div>
+        {footer && <div className="modal-footer">{footer}</div>}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+export function Confirm({
+  title,
+  message,
+  confirmLabel = "Delete",
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  message: ReactNode;
+  confirmLabel?: string;
+  onConfirm: () => Promise<void> | void;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal
+      title={title}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn-link" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await onConfirm();
+                onClose();
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {confirmLabel}
+          </button>
+        </>
+      }
+    >
+      {message}
+    </Modal>
+  );
 }

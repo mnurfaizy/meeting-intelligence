@@ -85,15 +85,10 @@ export default function Home() {
   const shown = meeting?.id === selected?.id ? meeting : null;
 
   return (
-    <div className="flex min-h-screen flex-col gap-3 p-3 lg:h-screen lg:flex-row">
+    <div className="flex min-h-screen flex-col gap-4 p-3 lg:h-screen lg:flex-row lg:p-4">
       {collapsed ? (
-        <button
-          type="button"
-          title="Show sidebar"
-          onClick={() => setCollapsed(false)}
-          className="hidden h-fit rounded-xl bg-panel p-3 text-gray-400 hover:text-gray-200 lg:block"
-        >
-          <PanelLeftOpen className="size-5" />
+        <button type="button" title="Show sidebar" aria-label="Show sidebar" onClick={() => setCollapsed(false)} className="icon-btn mt-4 hidden lg:inline-flex">
+          <PanelLeftOpen size={20} />
         </button>
       ) : (
         <Sidebar
@@ -112,30 +107,29 @@ export default function Home() {
         />
       )}
 
-      <main className="flex min-h-0 min-w-0 flex-1">
+      <main className="main-panel flex min-h-[calc(100vh-24px)] min-w-0 flex-1 lg:min-h-0">
         {rec.state && (isRecordingThis || !selected) ? (
           <RecordingView recording={rec.state} elapsed={rec.elapsed} level={rec.level} onStop={rec.stop} />
         ) : shown ? (
           <MeetingView key={`${shown.id}:${selected?.tab}`} meeting={shown} initialTab={selected?.tab ?? "summary"} onDeleted={() => setSelected(null)} />
         ) : selected ? (
-          <section className="flex flex-1 items-center justify-center rounded-2xl bg-panel text-gray-500">
-            <Spinner className="size-6" />
+          <section className="flex flex-1 items-center justify-center">
+            <Spinner size={32} />
           </section>
         ) : (
-          <section className="flex flex-1 items-center justify-center rounded-2xl bg-panel">
-            <EmptyState icon={<AudioLines className="size-6" />} title="Record your next meeting">
-              <ol className="mt-2 space-y-2 text-left">
+          <section className="flex flex-1 items-center justify-center p-6">
+            <EmptyState icon={<AudioLines size={22} />} title="Record your next meeting">
+              <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-left leading-relaxed">
                 <li>
-                  1. Open your meeting (Google Meet, Zoom web, Teams…) in another <b className="text-gray-300">Chrome tab</b>.
+                  Open your meeting (Google Meet, Zoom web, Teams…) in another <b className="text-ink">Chrome tab</b>.
                 </li>
                 <li>
-                  2. Click <b className="text-gray-300">Record New Meeting</b>, choose that tab, and keep{" "}
-                  <b className="text-gray-300">“Also share tab audio”</b> turned on.
+                  Click <b className="text-ink">Record New Meeting</b>, choose that tab, and keep <b className="text-ink">“Also share tab audio”</b> turned on.
                 </li>
-                <li>3. Click Stop when you are done — the transcript, summary and Assistant follow automatically.</li>
+                <li>Click Stop when you are done — the transcript, summary and Assistant follow automatically.</li>
               </ol>
-              <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-gray-500">
-                <MonitorSpeaker className="size-3.5" /> Works best in Chrome or Edge on desktop.
+              <p className="mt-5 flex items-center justify-center gap-1.5 text-xs text-muted">
+                <MonitorSpeaker size={14} /> Works best in Chrome or Edge on desktop.
               </p>
             </EmptyState>
           </section>
@@ -143,12 +137,14 @@ export default function Home() {
       </main>
 
       {toast && (
-        <div role="alert" className="fixed right-4 bottom-4 left-4 z-50 mx-auto flex max-w-lg items-start gap-3 rounded-xl border border-red-500/30 bg-[#2a1618] px-4 py-3 text-sm text-red-200 shadow-xl sm:left-auto">
-          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-red-400" />
-          <p className="flex-1">{toast}</p>
-          <button type="button" onClick={() => setToast(null)} className="text-red-300/70 hover:text-red-200" aria-label="Dismiss">
-            <X className="size-4" />
-          </button>
+        <div className="toasts">
+          <div role="alert" className="toast toast-error">
+            <TriangleAlert size={16} className="shrink-0" />
+            <span className="flex-1">{toast}</span>
+            <button type="button" onClick={() => setToast(null)} className="icon-btn size-7 text-white/80 hover:bg-white/15! hover:text-white!" aria-label="Dismiss">
+              <X size={16} />
+            </button>
+          </div>
         </div>
       )}
     </div>

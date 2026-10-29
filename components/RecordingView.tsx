@@ -44,56 +44,51 @@ export function RecordingView({
   const silent = ms > 8000 && levels.every((l) => l < 0.02);
 
   return (
-    <section className="flex min-h-[480px] flex-1 flex-col items-center justify-center rounded-2xl bg-panel px-6 py-10">
-      <div className="flex items-center gap-2.5 text-sm font-medium tracking-wide text-red-400 uppercase">
-        <span className="size-2.5 animate-pulse rounded-full bg-red-500" />
+    <section className="flex min-h-[480px] flex-1 flex-col items-center justify-center px-6 py-10">
+      <span className="badge badge-danger">
+        <span className="rec-pulse" />
         {recording.stopping ? "Saving recording" : "Recording"}
-      </div>
-      <div className="mt-3 font-mono text-6xl font-light text-gray-100 tabular-nums">{fmtClock(ms / 1000)}</div>
+      </span>
+      <div className="mt-4 text-[56px] leading-none font-bold tracking-[-1.5px] tabular-nums">{fmtClock(ms / 1000)}</div>
 
       <div className="mt-8 flex h-20 w-full max-w-xl items-center justify-center gap-[3px]" aria-hidden>
         {levels.map((l, i) => (
-          <span key={i} className="w-1.5 rounded-full bg-accent transition-[height] duration-75" style={{ height: `${Math.max(6, l * 100)}%`, opacity: 0.35 + (i / BARS) * 0.65 }} />
+          <span key={i} className="w-1.5 rounded-full bg-primary transition-[height] duration-75" style={{ height: `${Math.max(6, l * 100)}%`, opacity: 0.3 + (i / BARS) * 0.7 }} />
         ))}
       </div>
 
       {silent && (
-        <p className="mt-4 flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
-          <TriangleAlert className="size-4" /> No sound detected yet. Is the meeting tab playing audio?
+        <p className="mt-4 flex items-center gap-3 rounded-[var(--radius-md)] bg-warning-soft px-4 py-3 text-[13px] font-semibold text-[#7a5410]">
+          <TriangleAlert size={16} className="text-warning" /> No sound detected yet. Is the meeting tab playing audio?
         </p>
       )}
 
-      <div className="mt-8 grid w-full max-w-xl gap-2 text-sm">
-        <Row icon={<MonitorSpeaker className="size-4" />} label="Tab audio" value={recording.sourceLabel} />
+      <div className="card mt-8 w-full max-w-xl">
+        <Row icon={<MonitorSpeaker size={18} />} label="Tab audio" value={recording.sourceLabel} />
         <Row
-          icon={recording.micActive ? <Mic className="size-4" /> : <MicOff className="size-4" />}
+          icon={recording.micActive ? <Mic size={18} /> : <MicOff size={18} />}
           label="Microphone"
           value={recording.micActive ? "On — your voice is included" : "Off"}
         />
       </div>
 
-      <ol className="mt-6 flex w-full max-w-xl flex-wrap gap-2">
+      <ol className="mt-5 flex w-full max-w-xl flex-wrap gap-2">
         {chunks.map((c) => (
-          <li key={c.id} className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-xs text-gray-400" title="Saved in this browser as a backup">
-            <Check className="size-3.5 text-accent-hover" />
+          <li key={c.id} className="badge badge-success" title="Saved in this browser as a backup">
+            <Check size={12} strokeWidth={3} />
             Part {c.index + 1} saved
           </li>
         ))}
-        <li className="flex items-center gap-1.5 rounded-full border border-dashed border-line px-3 py-1 text-xs text-gray-500">
-          <span className="size-1.5 rounded-full bg-red-500" /> Part {currentPart} recording
+        <li className="badge">
+          <span className="size-1.5 rounded-full bg-danger" /> Part {currentPart} recording
         </li>
       </ol>
 
-      <button
-        type="button"
-        onClick={onStop}
-        disabled={recording.stopping}
-        className="mt-10 flex items-center gap-2.5 rounded-full bg-red-600 px-7 py-3 font-medium text-white hover:bg-red-500 disabled:opacity-60"
-      >
-        {recording.stopping ? <Spinner /> : <Square className="size-4 fill-current" />}
+      <button type="button" onClick={onStop} disabled={recording.stopping} className="btn btn-danger mt-10 px-7 py-3">
+        {recording.stopping ? <Spinner /> : <Square size={14} fill="currentColor" />}
         {recording.stopping ? "Saving…" : "Stop & Transcribe"}
       </button>
-      <p className="mt-4 max-w-md text-center text-xs leading-relaxed text-gray-500">
+      <p className="mt-4 max-w-md text-center text-xs leading-relaxed text-ink-2">
         Keep this tab open while recording. When you stop, the whole recording is transcribed in one go so speakers stay consistent. Every 10 minutes a backup part is saved in case the tab closes.
       </p>
     </section>
@@ -102,10 +97,10 @@ export function RecordingView({
 
 function Row({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg bg-panel-2/60 px-4 py-2.5">
-      <span className="text-gray-400">{icon}</span>
-      <span className="w-24 shrink-0 text-gray-400">{label}</span>
-      <span className="truncate text-gray-200">{value}</span>
+    <div className="flex items-center gap-3 border-t border-line px-5 py-3.5 first:border-t-0">
+      <span className="text-primary">{icon}</span>
+      <span className="w-24 shrink-0 font-semibold text-ink-2">{label}</span>
+      <span className="truncate font-bold">{value}</span>
     </div>
   );
 }
