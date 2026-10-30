@@ -6,6 +6,16 @@ import type { AudioRecord, ChatMessage, Meeting, MeetingListItem } from "./types
 
 /** Meetings, transcripts and chats live in the database behind /api/meetings. */
 
+/** A failed API call, keeping the HTTP status so callers can tell "deleted" (404) from other failures. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+  }
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
@@ -14,7 +24,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Request failed (HTTP ${res.status})`);
+    throw new ApiError(data.error || `Request failed (HTTP ${res.status})`, res.status);
   }
   return (res.status === 204 ? undefined : await res.json()) as T;
 }
@@ -68,7 +78,7 @@ export async function uploadMeetingAudio(id: string, blob: Blob, fileName?: stri
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Could not save the audio file (HTTP ${res.status})`);
+    throw new ApiError(data.error || `Could not save the audio file (HTTP ${res.status})`, res.status);
   }
   emitChange();
   return (await res.json()) as Meeting;

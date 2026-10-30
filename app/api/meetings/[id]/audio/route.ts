@@ -33,7 +33,13 @@ export async function PUT(req: Request, ctx: Ctx) {
     const previous = meeting[file];
     if (previous && previous !== fileName) await deleteAudio(previous);
     await updateMeeting(meeting.id, { [file]: fileName, [mime]: mimeType });
-    return Response.json(await getMeeting(meeting.id));
+    const saved = await getMeeting(meeting.id);
+    if (!saved) {
+      // The meeting was deleted while the upload was running: don't leave an orphan file behind.
+      await deleteAudio(fileName);
+      throw new HttpError(404, "Meeting not found.");
+    }
+    return Response.json(saved);
   } catch (err) {
     return errorResponse(err);
   }

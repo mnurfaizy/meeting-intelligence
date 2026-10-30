@@ -11,29 +11,44 @@ const raw = createClient({
 });
 
 /** True when the connection never opened, so nothing reached the database and a retry cannot double-write. */
-function isConnectError(err: unknown) {
+/** Walks an error and its causes (fetch wraps the real network error) looking for a match. */
+function matches(err: unknown, codes: RegExp, text: RegExp) {
   for (let e: unknown = err, depth = 0; e && depth < 4; e = (e as { cause?: unknown }).cause, depth++) {
-    const code = (e as { code?: string }).code ?? "";
-    if (/UND_ERR_CONNECT_TIMEOUT|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/.test(code) || /ConnectTimeoutError/.test(String(e))) return true;
+    if (codes.test((e as { code?: string }).code ?? "") || text.test(String(e))) return true;
   }
   return false;
 }
 
-async function retryOnConnectError<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+/** The connection never opened, so nothing reached the database. */
+const isConnectError = (err: unknown) => matches(err, /UND_ERR_CONNECT_TIMEOUT|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/, /ConnectTimeoutError/);
+
+/** The connection dropped mid-request; the statement may or may not have been applied. */
+const isNetworkError = (err: unknown) =>
+  isConnectError(err) ||
+  matches(err, /ECONNRESET|ETIMEDOUT|EPIPE|UND_ERR_SOCKET|UND_ERR_HEADERS_TIMEOUT|UND_ERR_BODY_TIMEOUT/, /fetch failed|other side closed|socket hang up/i);
+
+/**
+ * Retries brief network failures to Turso. `idempotent` statements (updates, replace-all,
+ * insert-if-missing) are also retried after a dropped connection; others only when the
+ * connection never opened, so they can never be applied twice.
+ */
+async function withDbRetry<T>(fn: () => Promise<T>, idempotent: boolean, attempts = 3): Promise<T> {
   for (let i = 1; ; i++) {
     try {
       return await fn();
     } catch (err) {
-      if (i >= attempts || !isConnectError(err)) throw err;
-      console.warn(`Database connection failed (attempt ${i}/${attempts}), retrying:`, String(err));
+      const retryable = idempotent ? isNetworkError(err) : isConnectError(err);
+      if (i >= attempts || !retryable) throw err;
+      console.warn(`Database request failed (attempt ${i}/${attempts}), retrying:`, String(err));
       await new Promise((r) => setTimeout(r, 1000 * i));
     }
   }
 }
 
 const client = {
-  execute: (stmt: InStatement) => retryOnConnectError(() => raw.execute(stmt)),
-  batch: (stmts: InStatement[], mode?: TransactionMode) => retryOnConnectError(() => raw.batch(stmts, mode)),
+  execute: (stmt: InStatement, { idempotent = true } = {}) => withDbRetry(() => raw.execute(stmt), idempotent),
+  batch: (stmts: InStatement[], mode?: TransactionMode, { idempotent = true } = {}) =>
+    withDbRetry(() => raw.batch(stmts, mode), idempotent),
 };
 
 const SCHEMA = [
@@ -220,6 +235,8 @@ export async function createMeeting(m: Meeting) {
       ...messageInserts(m.id, m.chat ?? []),
     ],
     "write",
+    // Includes plain chat inserts, so only retry when the connection never opened.
+    { idempotent: false },
   );
 }
 
@@ -242,7 +259,8 @@ export async function updateMeeting(id: string, patch: MeetingPatch) {
 }
 
 export async function appendMessages(id: string, messages: ChatMessage[]) {
-  await (await db()).batch(messageInserts(id, messages), "write");
+  // Plain inserts: retrying after a dropped connection could add the same message twice.
+  await (await db()).batch(messageInserts(id, messages), "write", { idempotent: false });
 }
 
 export async function deleteMeeting(id: string) {

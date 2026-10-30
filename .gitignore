@@ -14,6 +14,9 @@ local.db*
 # Meeting recordings (default AUDIO_DIR)
 recordings/
 
+# Personal exports (chat logs etc.)
+exports/
+
 .DS_Store
 npm-debug.log*
 .vercel

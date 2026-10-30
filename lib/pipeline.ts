@@ -1,7 +1,7 @@
 "use client";
 
 import { deleteLocalAudio, deleteLocalVideo, getAudio, getChunks, getVideo } from "./db";
-import { asTypedBlob, getMeeting, startServerTranscription, updateMeeting, uploadMeetingAudio } from "./store";
+import { ApiError, asTypedBlob, getMeeting, startServerTranscription, updateMeeting, uploadMeetingAudio } from "./store";
 import { transcriptToText } from "./format";
 import type { ChatMessage, Segment } from "./types";
 
@@ -78,7 +78,12 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 const queues = new Map<string, Promise<void>>();
 
 function enqueue(meetingId: string, task: () => Promise<void>) {
-  const next = (queues.get(meetingId) ?? Promise.resolve()).then(task).catch((err) => console.error(err));
+  const next = (queues.get(meetingId) ?? Promise.resolve()).then(task).catch((err) => {
+    // The meeting was deleted while this ran: nothing left to update.
+    if (err instanceof ApiError && err.status === 404) return;
+    // Background work; the meeting keeps its last state and "Try again" can rerun it.
+    console.warn(`Meeting ${meetingId}: background step failed:`, message(err));
+  });
   queues.set(meetingId, next);
   return next;
 }
