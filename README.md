@@ -18,6 +18,7 @@ You can also **Import Recording** to transcribe an existing audio or video file 
 | Meetings, transcript lines, summaries, Assistant chats | **Turso** (libSQL) — or a local `local.db` SQLite file when Turso is not configured |
 | Audio files | Plain files in the **recordings folder** (`AUDIO_DIR`, default `./recordings`), e.g. `2026-10-29_1021_5542c12e.webm` |
 | Screen video (optional) | Same folder, e.g. `2026-10-29_1021_5542c12e-video.webm` |
+| Playback copies | `recordings/.playback/` — Opus/WebM copies of formats browsers can't play (WMA, AMR, …), made once with ffmpeg; originals are untouched |
 | 10-minute backup parts while recording | The browser (IndexedDB), deleted once the full recording is saved |
 
 Recordings are first kept in the browser, then moved into the recordings folder when you stop (or import); if that fails, they stay in the browser and are moved on the next try. Recordings made by the earlier browser-only version are moved into the folder automatically. Deleting a meeting also deletes its audio file.

@@ -1,4 +1,14 @@
-import { audioSize, deleteAudio, mimeForFile, readAudio, saveAudio, type MediaKind } from "@/lib/server/audio";
+import {
+  audioPath,
+  deleteAudio,
+  ensurePlaybackCopy,
+  fileSize,
+  mimeForFile,
+  needsPlaybackCopy,
+  readFile,
+  saveAudio,
+  type MediaKind,
+} from "@/lib/server/audio";
 import { getMeeting, updateMeeting } from "@/lib/server/db";
 import { HttpError, errorResponse } from "@/lib/gemini";
 
@@ -39,6 +49,8 @@ export async function PUT(req: Request, ctx: Ctx) {
       await deleteAudio(fileName);
       throw new HttpError(404, "Meeting not found.");
     }
+    // Start converting formats the browser can't play now, so the player is ready later.
+    if (needsPlaybackCopy(fileName)) void ensurePlaybackCopy(fileName).catch((err) => console.warn("Playback copy failed:", String(err)));
     return Response.json(saved);
   } catch (err) {
     return errorResponse(err);
@@ -52,10 +64,13 @@ export async function GET(req: Request, ctx: Ctx) {
     const { file, mime } = fields(kindOf(req));
     const fileName = meeting[file];
     if (!fileName) throw new HttpError(404, "This meeting has no such file.");
-    const size = await audioSize(fileName).catch(() => {
+    // Formats the browser can't play (WMA, AMR, …) are served from a converted Opus/WebM copy.
+    const converted = needsPlaybackCopy(fileName);
+    const fullPath = converted ? await ensurePlaybackCopy(fileName) : audioPath(fileName);
+    const size = await fileSize(fullPath).catch(() => {
       throw new HttpError(404, "The file is missing from the recordings folder.");
     });
-    const type = meeting[mime]?.split(";")[0] || mimeForFile(fileName);
+    const type = converted ? "audio/webm" : meeting[mime]?.split(";")[0] || mimeForFile(fileName);
     const headers = { "Content-Type": type, "Accept-Ranges": "bytes", "Cache-Control": "no-store" };
 
     const match = req.headers.get("range")?.match(/bytes=(\d*)-(\d*)/);
@@ -65,12 +80,12 @@ export async function GET(req: Request, ctx: Ctx) {
       if (start >= size || start > end) {
         return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
       }
-      return new Response(readAudio(fileName, { start, end }), {
+      return new Response(readFile(fullPath, { start, end }), {
         status: 206,
         headers: { ...headers, "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": String(end - start + 1) },
       });
     }
-    return new Response(readAudio(fileName), { headers: { ...headers, "Content-Length": String(size) } });
+    return new Response(readFile(fullPath), { headers: { ...headers, "Content-Length": String(size) } });
   } catch (err) {
     return errorResponse(err);
   }
