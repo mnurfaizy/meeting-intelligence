@@ -1,6 +1,6 @@
 "use client";
 
-import { deleteLocalAudio, deleteLocalVideo, getAudio, getChunks, getVideo } from "./db";
+import { assembleParts, deleteLocalAudio, deleteLocalVideo, getAudio, getChunks, getVideo, putAudio, putVideo } from "./db";
 import { ApiError, asTypedBlob, getMeeting, startServerTranscription, updateMeeting, uploadMeetingAudio } from "./store";
 import { transcriptToText } from "./format";
 import type { ChatMessage, Segment } from "./types";
@@ -76,14 +76,23 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 
 /** Work for one meeting runs strictly in order, so a retry never races a running job. */
 const queues = new Map<string, Promise<void>>();
+/** How many tasks are queued or running per meeting. */
+const pending = new Map<string, number>();
+
+/** True while this tab is still working on the meeting (so it should not be resumed again). */
+export const isMeetingBusy = (meetingId: string) => (pending.get(meetingId) ?? 0) > 0;
 
 function enqueue(meetingId: string, task: () => Promise<void>) {
-  const next = (queues.get(meetingId) ?? Promise.resolve()).then(task).catch((err) => {
-    // The meeting was deleted while this ran: nothing left to update.
-    if (err instanceof ApiError && err.status === 404) return;
-    // Background work; the meeting keeps its last state and "Try again" can rerun it.
-    console.warn(`Meeting ${meetingId}: background step failed:`, message(err));
-  });
+  pending.set(meetingId, (pending.get(meetingId) ?? 0) + 1);
+  const next = (queues.get(meetingId) ?? Promise.resolve())
+    .then(task)
+    .catch((err) => {
+      // The meeting was deleted while this ran: nothing left to update.
+      if (err instanceof ApiError && err.status === 404) return;
+      // Background work; the meeting keeps its last state and is resumed or retried later.
+      console.warn(`Meeting ${meetingId}: background step failed:`, message(err));
+    })
+    .finally(() => pending.set(meetingId, (pending.get(meetingId) ?? 1) - 1));
   queues.set(meetingId, next);
   return next;
 }
@@ -92,8 +101,24 @@ function enqueue(meetingId: string, task: () => Promise<void>) {
  * Makes sure the recording is in the server's recordings folder, moving it there from this
  * browser if needed. Returns false when neither has it.
  */
+/**
+ * After a reload or crash mid-recording there is no complete file, only the second-by-second
+ * parts: join them back into the full recording (and screen video) so nothing is lost.
+ */
+async function rebuildFromParts(meetingId: string) {
+  if (!(await getAudio(meetingId))) {
+    const audio = await assembleParts(meetingId, "audio");
+    if (audio) await putAudio({ meetingId, ...audio });
+  }
+  if (!(await getVideo(meetingId))) {
+    const video = await assembleParts(meetingId, "video");
+    if (video) await putVideo({ meetingId, ...video });
+  }
+}
+
 async function ensureAudioFile(meetingId: string) {
   const meeting = await getMeeting(meetingId);
+  if (!meeting?.audioFile) await rebuildFromParts(meetingId);
   // The screen video, if any, goes first: it only lives in this browser until it is saved.
   const video = meeting?.videoFile ? undefined : await getVideo(meetingId);
   if (video) {

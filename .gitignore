@@ -1,5 +1,6 @@
 node_modules/
 .next/
+.next-app/
 out/
 build/
 *.tsbuildinfo

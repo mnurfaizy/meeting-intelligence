@@ -64,7 +64,12 @@ export function RecordingView({
       )}
 
       <div className="card mt-8 w-full max-w-xl">
-        <Row icon={<MonitorSpeaker size={18} />} label="Tab audio" value={recording.sourceLabel} />
+        <Row
+          icon={<MonitorSpeaker size={18} />}
+          label="Tab audio"
+          value={recording.shareLost ? "Not captured — tab sharing stopped" : recording.sourceLabel}
+          warn={recording.shareLost}
+        />
         <Row
           icon={recording.micActive ? <Mic size={18} /> : <MicOff size={18} />}
           label="Microphone"
@@ -100,12 +105,12 @@ export function RecordingView({
   );
 }
 
-function Row({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function Row({ icon, label, value, warn }: { icon: React.ReactNode; label: string; value: string; warn?: boolean }) {
   return (
-    <div className="flex items-center gap-3 border-t border-line px-5 py-3.5 first:border-t-0">
-      <span className="text-primary">{icon}</span>
+    <div className={`flex items-center gap-3 border-t border-line px-5 py-3.5 first:border-t-0 ${warn ? "bg-danger-soft" : ""}`}>
+      <span className={warn ? "text-danger" : "text-primary"}>{icon}</span>
       <span className="w-24 shrink-0 font-semibold text-ink-2">{label}</span>
-      <span className="truncate font-bold">{value}</span>
+      <span className={`truncate font-bold ${warn ? "text-danger" : ""}`}>{value}</span>
     </div>
   );
 }

@@ -23,8 +23,18 @@ export type RecordingResult = {
 
 type Callbacks = {
   onChunk: (chunk: RecordedChunk) => void;
-  /** The user clicked "Stop sharing" in Chrome, or the 6-hour limit was hit. */
-  onAutoStop: (reason: "ended" | "max") => void;
+  /**
+   * Every second's worth of the full recording (and of the screen video). Joined in order these
+   * parts form a playable file, so saving them as they come means a closed tab loses seconds, not minutes.
+   */
+  onPart?: (part: { kind: "audio" | "video"; seq: number; blob: Blob; mimeType: string }) => void;
+  /**
+   * Tab sharing ended ("Stop sharing" clicked, tab closed, Chrome cut it off). Recording keeps
+   * going (the microphone is still captured) until the user shares a tab again or stops.
+   */
+  onShareEnded: () => void;
+  /** The 6-hour limit was hit. */
+  onAutoStop: (reason: "max") => void;
 };
 
 export class NoTabAudioError extends Error {
@@ -57,8 +67,13 @@ export class TabRecorder {
   private video: MediaRecorder | null = null;
   private videoParts: Blob[] = [];
 
+  /** False while tab sharing is lost (see onShareEnded). */
+  shareActive = false;
+
   private ctx: AudioContext | null = null;
   private display: MediaStream | null = null;
+  private destination: MediaStreamAudioDestinationNode | null = null;
+  private tabSource: MediaStreamAudioSourceNode | null = null;
   private mic: MediaStream | null = null;
   private mixed: MediaStream | null = null;
   private analyser: AnalyserNode | null = null;
@@ -89,29 +104,64 @@ export class TabRecorder {
     return Math.min(1, Math.sqrt(sum / this.levelBuffer.length) * 5);
   }
 
+  /** Asks Chrome which tab to share; fails if the user did not turn on "Also share tab audio". */
+  private async requestDisplay(includeVideo: boolean) {
+    const options = {
+      // Chrome always shares a picture; without video recording, 1 fps keeps that nearly free.
+      video: includeVideo ? { frameRate: { ideal: 15, max: 30 } } : { frameRate: 1 },
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      preferCurrentTab: false,
+      selfBrowserSurface: "exclude",
+      surfaceSwitching: "include",
+      systemAudio: "include",
+    };
+    const display = await navigator.mediaDevices.getDisplayMedia(options as unknown as DisplayMediaStreamOptions);
+    if (display.getAudioTracks().length === 0) {
+      display.getTracks().forEach((t) => t.stop());
+      throw new NoTabAudioError();
+    }
+    return display;
+  }
+
+  /** Feeds a shared tab's audio into the recording and watches for the share ending. */
+  private attachShare(display: MediaStream) {
+    const tabAudio = display.getAudioTracks();
+    this.display = display;
+    this.sourceLabel = display.getVideoTracks()[0]?.label || tabAudio[0].label || "Shared tab";
+    if (this.ctx && this.destination && this.analyser) {
+      this.tabSource = this.ctx.createMediaStreamSource(new MediaStream(tabAudio));
+      this.tabSource.connect(this.destination);
+      this.tabSource.connect(this.analyser);
+    }
+    this.shareActive = true;
+    const onEnded = () => {
+      if (this.display !== display || !this.shareActive || this.stopPromise) return;
+      this.shareActive = false;
+      this.tabSource?.disconnect();
+      this.tabSource = null;
+      this.cb.onShareEnded();
+    };
+    for (const track of display.getTracks()) track.addEventListener("ended", onEnded, { once: true });
+  }
+
+  /**
+   * Shares a tab again after sharing was lost, continuing the same recording. Must be called
+   * from a click. Screen video (if on) is not resumed; audio continues in the same file.
+   */
+  async reshare() {
+    const display = await this.requestDisplay(false);
+    this.display?.getTracks().forEach((t) => t.stop());
+    this.attachShare(display);
+  }
+
   async start(includeMic: boolean, includeVideo = false) {
     // Created before any await so it is tied to the click and not left suspended.
     const ctx = new AudioContext();
     this.ctx = ctx;
 
     try {
-      const options = {
-        // Chrome always shares a picture; without video recording, 1 fps keeps that nearly free.
-        video: includeVideo ? { frameRate: { ideal: 15, max: 30 } } : { frameRate: 1 },
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-        preferCurrentTab: false,
-        selfBrowserSurface: "exclude",
-        surfaceSwitching: "include",
-        systemAudio: "include",
-      };
-      const display = await navigator.mediaDevices.getDisplayMedia(
-        options as unknown as DisplayMediaStreamOptions,
-      );
+      const display = await this.requestDisplay(includeVideo);
       this.display = display;
-
-      const tabAudio = display.getAudioTracks();
-      if (tabAudio.length === 0) throw new NoTabAudioError();
-      this.sourceLabel = display.getVideoTracks()[0]?.label || tabAudio[0].label || "Shared tab";
 
       if (includeMic) {
         try {
@@ -127,17 +177,19 @@ export class TabRecorder {
 
       await ctx.resume();
       const destination = ctx.createMediaStreamDestination();
+      this.destination = destination;
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 1024;
       this.analyser = analyser;
       this.levelBuffer = new Float32Array(analyser.fftSize);
 
-      for (const stream of [new MediaStream(tabAudio), this.mic]) {
-        if (!stream) continue;
-        const source = ctx.createMediaStreamSource(stream);
-        source.connect(destination);
-        source.connect(analyser);
+      if (this.mic) {
+        const micSource = ctx.createMediaStreamSource(this.mic);
+        micSource.connect(destination);
+        micSource.connect(analyser);
       }
+      // The tab is connected separately so it can be swapped if sharing is lost and resumed.
+      this.attachShare(display);
       this.mixed = destination.stream;
 
       this.mimeType = pickMimeType(["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]);
@@ -148,14 +200,13 @@ export class TabRecorder {
         this.videoActive = Boolean(this.videoMimeType);
       }
 
-      // Ending the share from Chrome's own "Stop sharing" bar stops the recording.
-      for (const track of display.getTracks()) {
-        track.addEventListener("ended", () => this.cb.onAutoStop("ended"), { once: true });
-      }
-
       this.t0 = performance.now();
       this.full = new MediaRecorder(this.mixed, { mimeType: this.mimeType, audioBitsPerSecond: 48000 });
-      this.full.ondataavailable = (e) => e.data.size && this.fullParts.push(e.data);
+      this.full.ondataavailable = (e) => {
+        if (!e.data.size) return;
+        this.fullParts.push(e.data);
+        this.cb.onPart?.({ kind: "audio", seq: this.fullParts.length - 1, blob: e.data, mimeType: this.mimeType });
+      };
       this.full.start(1000);
       if (this.videoActive) {
         this.video = new MediaRecorder(new MediaStream([picture, ...this.mixed.getAudioTracks()]), {
@@ -163,7 +214,11 @@ export class TabRecorder {
           videoBitsPerSecond: VIDEO_BITS_PER_SECOND,
           audioBitsPerSecond: 64000,
         });
-        this.video.ondataavailable = (e) => e.data.size && this.videoParts.push(e.data);
+        this.video.ondataavailable = (e) => {
+          if (!e.data.size) return;
+          this.videoParts.push(e.data);
+          this.cb.onPart?.({ kind: "video", seq: this.videoParts.length - 1, blob: e.data, mimeType: this.videoMimeType });
+        };
         this.video.start(1000);
       }
       this.startChunk();

@@ -15,12 +15,16 @@ interface LocalDB extends DBSchema {
   audio: { key: string; value: AudioRecord };
   /** Screen video recordings, until they are moved into the recordings folder. */
   video: { key: string; value: AudioRecord };
+  /** Second-by-second parts of a recording in progress; joined, they rebuild it after a crash. */
+  parts: { key: string; value: RecordingPart; indexes: { byMeeting: string } };
 }
+
+export type RecordingPart = { id: string; meetingId: string; kind: "audio" | "video"; seq: number; blob: Blob; mimeType: string };
 
 let dbPromise: Promise<IDBPDatabase<LocalDB>> | null = null;
 
 function db() {
-  dbPromise ??= openDB<LocalDB>("meeting-intelligence", 2, {
+  dbPromise ??= openDB<LocalDB>("meeting-intelligence", 3, {
     upgrade(d, oldVersion) {
       if (oldVersion < 1) {
         d.createObjectStore("meetings", { keyPath: "id" });
@@ -28,9 +32,32 @@ function db() {
         d.createObjectStore("audio", { keyPath: "meetingId" });
       }
       if (oldVersion < 2) d.createObjectStore("video", { keyPath: "meetingId" });
+      if (oldVersion < 3) d.createObjectStore("parts", { keyPath: "id" }).createIndex("byMeeting", "meetingId");
+    },
+    // Another tab opened a newer version: step aside so its upgrade is not stuck behind us.
+    blocking(_current, _next, event) {
+      (event.target as IDBDatabase).close();
+      dbPromise = null;
     },
   });
   return dbPromise;
+}
+
+export async function putPart(part: Omit<RecordingPart, "id">) {
+  await (await db()).put("parts", { ...part, id: `${part.meetingId}:${part.kind}:${String(part.seq).padStart(6, "0")}` });
+}
+
+/** Joins the saved parts of one recording back into a single playable file, or null if there are none. */
+export async function assembleParts(meetingId: string, kind: "audio" | "video") {
+  const parts = (await (await db()).getAllFromIndex("parts", "byMeeting", meetingId)).filter((p) => p.kind === kind).sort((a, b) => a.seq - b.seq);
+  if (!parts.length || parts[0].seq !== 0) return null; // without the first part there is no file header
+  return { blob: new Blob(parts.map((p) => p.blob), { type: parts[0].mimeType }), mimeType: parts[0].mimeType };
+}
+
+export async function deleteParts(meetingId: string) {
+  const tx = (await db()).transaction("parts", "readwrite");
+  for (const key of await tx.store.index("byMeeting").getAllKeys(meetingId)) await tx.store.delete(key);
+  await tx.done;
 }
 
 export async function putVideo(video: AudioRecord) {
@@ -67,7 +94,8 @@ export async function getAudio(meetingId: string) {
 
 /** True when this browser holds audio for the meeting, so it can (re)transcribe it. */
 export async function hasLocalAudio(meetingId: string) {
-  return Boolean((await getAudio(meetingId)) || (await getChunks(meetingId)).length);
+  if ((await getAudio(meetingId)) || (await getChunks(meetingId)).length) return true;
+  return (await (await db()).countFromIndex("parts", "byMeeting", meetingId)) > 0;
 }
 
 export async function deleteLocalAudio(meetingId: string) {
@@ -77,11 +105,17 @@ export async function deleteLocalAudio(meetingId: string) {
   }
   await tx.objectStore("audio").delete(meetingId);
   await tx.done;
+  await deleteParts(meetingId);
 }
 
 /** Meetings saved by the browser-only version of the app, waiting to be moved to the database. */
 export async function getLegacyMeetings() {
   return (await db()).getAll("meetings");
+}
+
+/** Keeps a meeting in the browser when the server is unreachable; moved to the database later. */
+export async function saveBrowserMeeting(meeting: Meeting) {
+  await (await db()).put("meetings", meeting);
 }
 
 export async function removeLegacyMeeting(id: string) {

@@ -1,4 +1,5 @@
 import {
+  addSeekIndex,
   audioPath,
   deleteAudio,
   ensurePlaybackCopy,
@@ -40,6 +41,8 @@ export async function PUT(req: Request, ctx: Ctx) {
     const mimeType = req.headers.get("content-type") || "application/octet-stream";
     const originalName = req.headers.get("x-file-name") ? decodeURIComponent(req.headers.get("x-file-name")!) : undefined;
     const fileName = await saveAudio(req.body, { meetingId: meeting.id, createdAt: meeting.createdAt, mimeType, originalName, kind });
+    // Browser recordings lack a duration/seek index; add one so the player loads and seeks fast.
+    await addSeekIndex(fileName);
     const previous = meeting[file];
     if (previous && previous !== fileName) await deleteAudio(previous);
     await updateMeeting(meeting.id, { [file]: fileName, [mime]: mimeType });

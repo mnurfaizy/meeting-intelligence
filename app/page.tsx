@@ -6,10 +6,11 @@ import { MeetingView } from "@/components/MeetingView";
 import { RecordingView } from "@/components/RecordingView";
 import { Sidebar } from "@/components/Sidebar";
 import { EmptyState, Spinner } from "@/components/ui";
-import { hasLocalAudio, putAudio } from "@/lib/db";
+import { getAudio, hasLocalAudio, putAudio } from "@/lib/db";
 import { useMeeting, useMeetings } from "@/lib/hooks";
-import { finalizeMeeting } from "@/lib/pipeline";
-import { createMeeting, migrateBrowserMeetings, moveBrowserAudioToFolder } from "@/lib/store";
+import { finalizeMeeting, isMeetingBusy } from "@/lib/pipeline";
+import { createMeeting, listMeetings, migrateBrowserMeetings, moveBrowserAudioToFolder } from "@/lib/store";
+import type { MeetingListItem } from "@/lib/types";
 import { useRecording } from "@/lib/useRecording";
 
 export default function Home() {
@@ -31,9 +32,23 @@ export default function Home() {
     return () => clearTimeout(id);
   }, [toast]);
 
-  // On first load: move meetings from the browser-only version into the database, then resume
-  // meetings interrupted by a reload or a closed tab. Only this browser has their audio, so
-  // meetings recorded elsewhere are left alone.
+  // Picks up meetings whose saving/transcription was interrupted (reload, closed tab, server down
+  // when Stop was pressed). Never touches the meeting being recorded in this tab.
+  const recordingIdRef = useRef<string | undefined>(undefined);
+  recordingIdRef.current = rec.state?.meetingId;
+  const resumeInterrupted = useCallback(async (list: MeetingListItem[], { firstLoad = false } = {}) => {
+    for (const m of list) {
+      if (m.status !== "recording" && m.status !== "processing") continue;
+      if (m.id === recordingIdRef.current || isMeetingBusy(m.id)) continue;
+      // Only on first load can a "recording" meeting with nothing but backup parts be a crash:
+      // later it may still be recording in another tab.
+      const canResume =
+        Boolean(m.audioFile) || Boolean(await getAudio(m.id)) || (firstLoad && (await hasLocalAudio(m.id)));
+      if (canResume) void finalizeMeeting(m.id);
+    }
+  }, []);
+
+  // On first load: move meetings from the browser-only version into the database, then resume.
   const resumed = useRef(false);
   useEffect(() => {
     if (!meetings || resumed.current) return;
@@ -45,11 +60,25 @@ export default function Home() {
       } catch (err) {
         showError(`Could not move saved data out of the browser: ${err instanceof Error ? err.message : err}`);
       }
-      for (const m of meetings) {
-        if ((m.status === "recording" || m.status === "processing") && (await hasLocalAudio(m.id))) void finalizeMeeting(m.id);
-      }
+      await resumeInterrupted(meetings, { firstLoad: true });
     })();
-  }, [meetings, showError]);
+  }, [meetings, showError, resumeInterrupted]);
+
+  // Retry every 30 s and when the connection returns, so a recording stopped while the server was
+  // down gets saved as soon as it is back, without reloading the page.
+  useEffect(() => {
+    const retry = () =>
+      migrateBrowserMeetings()
+        .then(() => listMeetings())
+        .then((list) => resumeInterrupted(list))
+        .catch(() => {});
+    const timer = setInterval(retry, 30_000);
+    window.addEventListener("online", retry);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("online", retry);
+    };
+  }, [resumeInterrupted]);
 
   const startRecording = async () => {
     setStarting(true);
@@ -109,6 +138,26 @@ export default function Home() {
           onImport={importFile}
           onCollapse={() => setCollapsed(true)}
         />
+      )}
+
+      {rec.state?.shareLost && (
+        <div role="alert" className="fixed top-4 left-1/2 z-[2000] flex w-[min(640px,calc(100vw-32px))] -translate-x-1/2 flex-wrap items-center gap-3 rounded-[var(--radius-lg)] bg-danger px-5 py-4 text-white shadow-[var(--shadow-overlay)]">
+          <TriangleAlert size={20} className="shrink-0" />
+          <div className="min-w-[220px] flex-1">
+            <p className="font-bold">Tab sharing stopped — the meeting audio is not being recorded</p>
+            <p className="text-[13px] text-white/85">
+              The recording is still running{rec.state.micActive ? " with your microphone" : ""}. Share the meeting tab again to keep capturing everyone.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => void rec.reshare()} className="btn btn-sm bg-white text-danger hover:bg-white/90">
+              Share tab again
+            </button>
+            <button type="button" onClick={() => void rec.stop()} className="btn btn-sm bg-white/15 text-white hover:bg-white/25">
+              Stop &amp; save
+            </button>
+          </div>
+        </div>
       )}
 
       <main className="main-panel flex min-h-[calc(100vh-24px)] min-w-0 flex-1 lg:min-h-0">

@@ -105,6 +105,41 @@ export const needsPlaybackCopy = (fileName: string) => !BROWSER_PLAYABLE.has(pat
 const playbackPath = (fileName: string) =>
   path.join(/*turbopackIgnore: true*/ AUDIO_DIR, ".playback", `${path.parse(path.basename(fileName)).name}.webm`);
 
+/** Runs ffmpeg with the given arguments; rejects with a readable error if it is missing or fails. */
+function runFfmpeg(args: string[]) {
+  return new Promise<void>((resolve, reject) => {
+    const ffmpeg = spawn(/*turbopackIgnore: true*/ process.env.FFMPEG_PATH?.trim() || "ffmpeg", ["-y", "-loglevel", "error", ...args], {
+      windowsHide: true,
+    });
+    let stderr = "";
+    ffmpeg.stderr.on("data", (d) => (stderr += d));
+    ffmpeg.on("error", (err: NodeJS.ErrnoException) =>
+      reject(err.code === "ENOENT" ? new HttpError(415, "ffmpeg was not found. Install ffmpeg or set FFMPEG_PATH.") : err),
+    );
+    ffmpeg.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg failed: ${stderr.trim().slice(0, 300)}`))));
+  });
+}
+
+/**
+ * Browser recordings (MediaRecorder WebM) have no duration or seek index, so players must read
+ * most of the file before they can show the length or seek — slow for a 100 MB video. Remuxing
+ * (copying the streams, no re-encoding, ~1-2 s) adds both. Leaves the file as is if it fails.
+ */
+export async function addSeekIndex(fileName: string) {
+  if (path.extname(fileName).toLowerCase() !== ".webm") return false;
+  const source = audioPath(fileName);
+  const temp = `${source}.indexed.part`;
+  try {
+    await runFfmpeg(["-i", source, "-c", "copy", "-f", "webm", temp]);
+    await rename(/*turbopackIgnore: true*/ temp, source);
+    return true;
+  } catch (err) {
+    await rm(/*turbopackIgnore: true*/ temp, { force: true });
+    console.warn(`Could not add a seek index to ${fileName}:`, String(err));
+    return false;
+  }
+}
+
 const conversions = new Map<string, Promise<string>>();
 
 /**
@@ -120,22 +155,11 @@ export function ensurePlaybackCopy(fileName: string): Promise<string> {
     if (await fileSize(target).catch(() => 0)) return target;
     await mkdir(/*turbopackIgnore: true*/ path.dirname(target), { recursive: true });
     const temp = `${target}.part`;
-    await new Promise<void>((resolve, reject) => {
-      const args = ["-y", "-loglevel", "error", "-i", audioPath(fileName), "-vn", "-c:a", "libopus", "-b:a", "64k", "-f", "webm", temp];
-      const ffmpeg = spawn(/*turbopackIgnore: true*/ process.env.FFMPEG_PATH?.trim() || "ffmpeg", args, { windowsHide: true });
-      let stderr = "";
-      ffmpeg.stderr.on("data", (d) => (stderr += d));
-      ffmpeg.on("error", (err: NodeJS.ErrnoException) =>
-        reject(
-          err.code === "ENOENT"
-            ? new HttpError(415, "This audio format can't be played in the browser, and ffmpeg (needed to convert it) was not found. Install ffmpeg or set FFMPEG_PATH.")
-            : err,
-        ),
-      );
-      ffmpeg.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg could not convert the file: ${stderr.trim().slice(0, 300)}`))));
-    }).catch(async (err) => {
+    await runFfmpeg(["-i", audioPath(fileName), "-vn", "-c:a", "libopus", "-b:a", "64k", "-f", "webm", temp]).catch(async (err) => {
       await rm(/*turbopackIgnore: true*/ temp, { force: true });
-      throw err;
+      throw err instanceof HttpError
+        ? new HttpError(415, "This audio format can't be played in the browser, and ffmpeg (needed to convert it) was not found.")
+        : err;
     });
     await rename(/*turbopackIgnore: true*/ temp, target);
     return target;
