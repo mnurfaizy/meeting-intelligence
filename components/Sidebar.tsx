@@ -2,6 +2,7 @@
 
 import { AudioLines, Clock, MessageSquare, Mic, PanelLeftClose, Search, Square, TriangleAlert, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useMicrophones } from "@/lib/devices";
 import { fmtClock, fmtDateGroup, fmtTime } from "@/lib/format";
 import type { MeetingListItem } from "@/lib/types";
 import type { RecordingState } from "@/lib/useRecording";
@@ -18,6 +19,9 @@ type Props = {
   onStop: () => void;
   includeMic: boolean;
   onIncludeMicChange: (v: boolean) => void;
+  /** Chosen microphone ("" = system default). */
+  micDeviceId: string;
+  onMicDeviceChange: (id: string) => void;
   includeVideo: boolean;
   onIncludeVideoChange: (v: boolean) => void;
   onImport: (file: File) => void;
@@ -89,6 +93,9 @@ export function Sidebar(props: Props) {
             </span>
             <Toggle checked={props.includeMic} onChange={props.onIncludeMicChange} disabled={!!recording} />
           </label>
+          {props.includeMic && (
+            <MicPicker value={props.micDeviceId} onChange={props.onMicDeviceChange} disabled={!!recording} />
+          )}
           <label className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
             <span>
               <span className="block font-bold">Record screen video</span>
@@ -187,6 +194,34 @@ function StatusIcon({ meeting: m }: { meeting: MeetingListItem }) {
   if (m.status === "error") return <TriangleAlert size={16} className="mt-0.5 shrink-0 text-danger" />;
   if (!m.title) return <Clock size={16} className="mt-0.5 shrink-0" />;
   return null;
+}
+
+/** Lets the user pick the headset mic instead of whatever Windows treats as default. */
+function MicPicker({ value, onChange, disabled }: { value: string; onChange: (id: string) => void; disabled?: boolean }) {
+  const { mics, unlockNames } = useMicrophones();
+  // The pseudo-devices Chrome adds ("default", "communications") would duplicate real ones.
+  const devices = mics.filter((m) => m.deviceId && m.deviceId !== "default" && m.deviceId !== "communications");
+  const known = !value || devices.some((m) => m.deviceId === value);
+  return (
+    <div className="px-4 pb-3">
+      <select
+        value={known ? value : ""}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => void unlockNames()}
+        onMouseDown={() => void unlockNames()}
+        disabled={disabled}
+        aria-label="Microphone"
+        className="input h-9 w-full truncate pr-8 text-[13px] font-semibold"
+      >
+        <option value="">System default microphone</option>
+        {devices.map((m, i) => (
+          <option key={m.deviceId} value={m.deviceId}>
+            {m.label || `Microphone ${i + 1}`}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 }
 
 function ElapsedClock({ elapsed }: { elapsed: () => number }) {

@@ -18,6 +18,9 @@ recordings/
 # Personal exports (chat logs etc.)
 exports/
 
+# Server output when running hidden (start-app-hidden.vbs)
+logs/
+
 .DS_Store
 npm-debug.log*
 .vercel

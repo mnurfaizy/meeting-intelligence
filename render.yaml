@@ -1,0 +1,31 @@
+# Render Blueprint: one Docker web service (ffmpeg included). Data lives in Turso.
+services:
+  - type: web
+    name: meeting-intelligence
+    runtime: docker
+    plan: free
+    region: oregon # same region as the Turso database (AWS us-west-2) for fast queries
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_PASSWORD # password to open the app
+        sync: false
+      - key: ASSEMBLYAI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+    # On the free plan the server's disk is temporary (wiped on restart/sleep/deploy), so files in
+    # AUDIO_DIR do not last. To keep recordings on the server, switch to a paid plan and add a disk:
+    # plan: starter
+    # disk:
+    #   name: recordings
+    #   mountPath: /var/data
+    #   sizeGB: 10
+    # ...and set AUDIO_DIR=/var/data/recordings

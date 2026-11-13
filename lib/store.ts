@@ -22,6 +22,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     headers: init?.body ? { "Content-Type": "application/json" } : undefined,
     cache: "no-store",
   });
+  if (res.status === 401) {
+    // Signed out (session expired or password changed): back to the login page.
+    window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+  }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new ApiError(data.error || `Request failed (HTTP ${res.status})`, res.status);

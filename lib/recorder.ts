@@ -37,10 +37,18 @@ type Callbacks = {
   onAutoStop: (reason: "max") => void;
 };
 
+/** What the user picked in Chrome's share dialog. */
+type Surface = "browser" | "window" | "monitor" | undefined;
+
+/** The share has no audio; the message says how to fix it for what was picked. */
 export class NoTabAudioError extends Error {
-  constructor() {
+  constructor(surface: Surface) {
     super(
-      'No audio was shared. Pick a Chrome tab and make sure "Also share tab audio" is turned on.',
+      surface === "window"
+        ? 'Chrome can\'t record sound from an app window. For a desktop app (Zoom, Teams…), choose "Entire screen" and turn on "Also share system audio". For a meeting in the browser, choose its Chrome tab.'
+        : surface === "monitor"
+          ? 'No sound was shared. Choose "Entire screen" again and turn on "Also share system audio" at the bottom of the dialog.'
+          : 'No audio was shared. Pick the meeting\'s Chrome tab and make sure "Also share tab audio" is turned on.',
     );
   }
 }
@@ -77,7 +85,12 @@ export class TabRecorder {
   private mic: MediaStream | null = null;
   private mixed: MediaStream | null = null;
   private analyser: AnalyserNode | null = null;
+  /** Separate meters, so a silent meeting stream is noticed even while the mic picks up sound. */
+  private meetingAnalyser: AnalyserNode | null = null;
+  private micAnalyser: AnalyserNode | null = null;
   private levelBuffer: Float32Array<ArrayBuffer> | null = null;
+  /** What was shared: a Chrome tab ("browser"), an app window or the entire screen ("monitor"). */
+  surface: Surface;
 
   private full: MediaRecorder | null = null;
   private fullParts: Blob[] = [];
@@ -97,8 +110,17 @@ export class TabRecorder {
 
   /** 0..1 loudness of the mixed signal, for the level meter. */
   level() {
-    if (!this.analyser || !this.levelBuffer) return 0;
-    this.analyser.getFloatTimeDomainData(this.levelBuffer);
+    return this.rms(this.analyser);
+  }
+
+  /** 0..1 loudness of the shared meeting audio and of the microphone, measured separately. */
+  sourceLevels() {
+    return { meeting: this.shareActive ? this.rms(this.meetingAnalyser) : 0, mic: this.rms(this.micAnalyser) };
+  }
+
+  private rms(analyser: AnalyserNode | null) {
+    if (!analyser || !this.levelBuffer) return 0;
+    analyser.getFloatTimeDomainData(this.levelBuffer);
     let sum = 0;
     for (const v of this.levelBuffer) sum += v * v;
     return Math.min(1, Math.sqrt(sum / this.levelBuffer.length) * 5);
@@ -117,8 +139,9 @@ export class TabRecorder {
     };
     const display = await navigator.mediaDevices.getDisplayMedia(options as unknown as DisplayMediaStreamOptions);
     if (display.getAudioTracks().length === 0) {
+      const surface = (display.getVideoTracks()[0]?.getSettings() as { displaySurface?: Surface }).displaySurface;
       display.getTracks().forEach((t) => t.stop());
-      throw new NoTabAudioError();
+      throw new NoTabAudioError(surface);
     }
     return display;
   }
@@ -128,10 +151,12 @@ export class TabRecorder {
     const tabAudio = display.getAudioTracks();
     this.display = display;
     this.sourceLabel = display.getVideoTracks()[0]?.label || tabAudio[0].label || "Shared tab";
+    this.surface = (display.getVideoTracks()[0]?.getSettings() as { displaySurface?: Surface }).displaySurface;
     if (this.ctx && this.destination && this.analyser) {
       this.tabSource = this.ctx.createMediaStreamSource(new MediaStream(tabAudio));
       this.tabSource.connect(this.destination);
       this.tabSource.connect(this.analyser);
+      if (this.meetingAnalyser) this.tabSource.connect(this.meetingAnalyser);
     }
     this.shareActive = true;
     const onEnded = () => {
@@ -154,7 +179,23 @@ export class TabRecorder {
     this.attachShare(display);
   }
 
-  async start(includeMic: boolean, includeVideo = false) {
+  /** Name of the microphone actually used, e.g. "Headset Microphone (WH-1000XM4)". */
+  micLabel = "";
+
+  /** Opens the chosen microphone; falls back to the system default if it is unplugged. */
+  private async openMic(deviceId?: string) {
+    const processing = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    if (deviceId) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({ audio: { ...processing, deviceId: { exact: deviceId } } });
+      } catch {
+        // The chosen device is gone (headset unplugged): use the default instead.
+      }
+    }
+    return navigator.mediaDevices.getUserMedia({ audio: processing });
+  }
+
+  async start(includeMic: boolean, includeVideo = false, micDeviceId?: string) {
     // Created before any await so it is tied to the click and not left suspended.
     const ctx = new AudioContext();
     this.ctx = ctx;
@@ -165,9 +206,8 @@ export class TabRecorder {
 
       if (includeMic) {
         try {
-          this.mic = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          });
+          this.mic = await this.openMic(micDeviceId);
+          this.micLabel = this.mic.getAudioTracks()[0]?.label ?? "";
           this.micActive = true;
         } catch {
           // Recording the tab alone is still useful; the UI shows the mic as off.
@@ -178,15 +218,18 @@ export class TabRecorder {
       await ctx.resume();
       const destination = ctx.createMediaStreamDestination();
       this.destination = destination;
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 1024;
+      const newAnalyser = () => Object.assign(ctx.createAnalyser(), { fftSize: 1024 });
+      const analyser = newAnalyser();
       this.analyser = analyser;
+      this.meetingAnalyser = newAnalyser();
+      this.micAnalyser = newAnalyser();
       this.levelBuffer = new Float32Array(analyser.fftSize);
 
       if (this.mic) {
         const micSource = ctx.createMediaStreamSource(this.mic);
         micSource.connect(destination);
         micSource.connect(analyser);
+        micSource.connect(this.micAnalyser);
       }
       // The tab is connected separately so it can be swapped if sharing is lost and resumed.
       this.attachShare(display);

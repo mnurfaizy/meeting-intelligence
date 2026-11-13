@@ -40,10 +40,19 @@ Requirements: Node.js 20+ and API keys for AssemblyAI, Gemini and Groq.
 ```bash
 npm install
 cp .env.example .env.local   # then fill in ASSEMBLYAI_API_KEY, GEMINI_API_KEY and GROQ_API_KEY
-npm run dev
 ```
 
+### Daily use (Windows)
+
+Double-click **`start-app-hidden.vbs`**. The app builds once, then runs in the background at http://localhost:3000 with no window, independent of any editor, and restarts itself if it crashes. Output goes to `logs\app.log`. Double-click **`stop-app.cmd`** to stop it. (`start-app.cmd` does the same in a visible window.)
+
 Open http://localhost:3000 in **Chrome or Edge on desktop**.
+
+After pulling code changes, run `stop-app.cmd`, then `npm run app:build`, then start it again — while you are not recording.
+
+### Development
+
+`npm run dev` starts a dev server on http://localhost:3001 that reloads on code changes. Don't record in it: its auto-reloads would interrupt a recording.
 
 ## Recording tips
 
@@ -88,6 +97,16 @@ lib/db.ts                    IndexedDB storage for audio
 components/                  sidebar, meeting view, recording view
 ```
 
-## Deploying
+## Deploying to Render
 
-Audio is streamed through `/api/transcripts` to AssemblyAI. Vercel limits request bodies to 4.5 MB, which is less than most recordings, so on Vercel the upload needs to go through storage first (planned). Running the app with `npm run build && npm start` on your own machine or server has no such limit.
+The repo includes a `Dockerfile` (with ffmpeg) and a `render.yaml` Blueprint.
+
+1. In Render: **New → Blueprint**, connect this GitHub repo. Render reads `render.yaml`.
+2. Fill in the environment variables it asks for: `APP_PASSWORD` (the password to open the app), `ASSEMBLYAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` — the same values as your `.env.local`.
+3. Deploy. Open the `…onrender.com` URL and sign in with `APP_PASSWORD`.
+
+With `APP_PASSWORD` set every page and API asks for the password (a 30-day session cookie); without it — e.g. on your own laptop — the app stays open.
+
+**Free plan notes:** the service sleeps after 15 minutes without visits (the next visit takes ~1 minute to wake it), and its disk is temporary, so files in `AUDIO_DIR` are lost on restart. Transcripts, summaries and chats are safe in Turso. To keep recordings on the server, use a paid plan with a disk (see the comment in `render.yaml`).
+
+Avoid Vercel: it limits request bodies to 4.5 MB, smaller than most recordings.

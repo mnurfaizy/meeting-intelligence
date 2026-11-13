@@ -11,6 +11,8 @@ export type RecordingState = {
   meetingId: string;
   sourceLabel: string;
   micActive: boolean;
+  /** Name of the microphone in use, so a wrong device (laptop mic vs headset) is noticed. */
+  micLabel: string;
   videoActive: boolean;
   /** Tab sharing ended while recording; the tab's audio is not being captured until reshared. */
   shareLost: boolean;
@@ -40,6 +42,7 @@ function describeStartError(err: unknown) {
 export function useRecording(onError: (message: string) => void) {
   const [state, setState] = useState<RecordingState | null>(null);
   const recorderRef = useRef<TabRecorder | null>(null);
+  const readers = useRecorderReaders(recorderRef);
   const meetingIdRef = useRef<string | null>(null);
   const pendingSaves = useRef<Promise<unknown>[]>([]);
   const stoppingRef = useRef(false);
@@ -93,7 +96,7 @@ export function useRecording(onError: (message: string) => void) {
   stopRef.current = stop;
 
   const start = useCallback(
-    async (includeMic: boolean, includeVideo: boolean) => {
+    async (includeMic: boolean, includeVideo: boolean, micDeviceId?: string) => {
       if (recorderRef.current) return null;
       const meetingId = crypto.randomUUID();
       const recorder = new TabRecorder({
@@ -117,7 +120,7 @@ export function useRecording(onError: (message: string) => void) {
       });
 
       try {
-        await recorder.start(includeMic, includeVideo);
+        await recorder.start(includeMic, includeVideo, micDeviceId);
       } catch (err) {
         onError(describeStartError(err));
         return null;
@@ -130,6 +133,7 @@ export function useRecording(onError: (message: string) => void) {
         meetingId,
         sourceLabel: recorder.sourceLabel,
         micActive: recorder.micActive,
+        micLabel: recorder.micLabel,
         videoActive: recorder.videoActive,
         shareLost: false,
         stopping: false,
@@ -184,7 +188,21 @@ export function useRecording(onError: (message: string) => void) {
     start,
     stop,
     reshare,
+    ...readers,
+  };
+}
+
+/**
+ * Read-only views of the live recorder. Stable functions (they read the ref), so components can
+ * list them as effect dependencies without the effect restarting on every render.
+ */
+function useRecorderReaders(recorderRef: { current: TabRecorder | null }) {
+  const [readers] = useState(() => ({
     elapsed: () => recorderRef.current?.elapsed() ?? 0,
     level: () => recorderRef.current?.level() ?? 0,
-  };
+    sourceLevels: () => recorderRef.current?.sourceLevels() ?? { meeting: 0, mic: 0 },
+    /** What was shared: "browser" (a tab), "window" or "monitor" (entire screen). */
+    surface: () => recorderRef.current?.surface,
+  }));
+  return readers;
 }

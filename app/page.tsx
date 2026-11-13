@@ -7,6 +7,7 @@ import { RecordingView } from "@/components/RecordingView";
 import { Sidebar } from "@/components/Sidebar";
 import { EmptyState, Spinner } from "@/components/ui";
 import { getAudio, hasLocalAudio, putAudio } from "@/lib/db";
+import { useSavedMicrophone } from "@/lib/devices";
 import { useMeeting, useMeetings } from "@/lib/hooks";
 import { finalizeMeeting, isMeetingBusy } from "@/lib/pipeline";
 import { createMeeting, listMeetings, migrateBrowserMeetings, moveBrowserAudioToFolder } from "@/lib/store";
@@ -18,6 +19,7 @@ export default function Home() {
   const [selected, setSelected] = useState<{ id: string; tab: "summary" | "assistant" } | null>(null);
   const meeting = useMeeting(selected?.id ?? null);
   const [includeMic, setIncludeMic] = useState(true);
+  const [micDeviceId, setMicDeviceId] = useSavedMicrophone();
   const [includeVideo, setIncludeVideo] = useState(false);
   const [starting, setStarting] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -82,7 +84,7 @@ export default function Home() {
 
   const startRecording = async () => {
     setStarting(true);
-    const id = await rec.start(includeMic, includeVideo);
+    const id = await rec.start(includeMic, includeVideo, micDeviceId || undefined);
     setStarting(false);
     if (id) setSelected({ id, tab: "summary" });
   };
@@ -133,6 +135,8 @@ export default function Home() {
           onStop={rec.stop}
           includeMic={includeMic}
           onIncludeMicChange={setIncludeMic}
+          micDeviceId={micDeviceId}
+          onMicDeviceChange={setMicDeviceId}
           includeVideo={includeVideo}
           onIncludeVideoChange={setIncludeVideo}
           onImport={importFile}
@@ -162,7 +166,14 @@ export default function Home() {
 
       <main className="main-panel flex min-h-[calc(100vh-24px)] min-w-0 flex-1 lg:min-h-0">
         {rec.state && (isRecordingThis || !selected) ? (
-          <RecordingView recording={rec.state} elapsed={rec.elapsed} level={rec.level} onStop={rec.stop} />
+          <RecordingView
+            recording={rec.state}
+            elapsed={rec.elapsed}
+            level={rec.level}
+            sourceLevels={rec.sourceLevels}
+            surface={rec.surface}
+            onStop={rec.stop}
+          />
         ) : shown ? (
           <MeetingView key={`${shown.id}:${selected?.tab}`} meeting={shown} initialTab={selected?.tab ?? "summary"} onDeleted={() => setSelected(null)} />
         ) : selected ? (
@@ -181,6 +192,10 @@ export default function Home() {
                 </li>
                 <li>Click Stop when you are done — the transcript, summary and Assistant follow automatically.</li>
               </ol>
+              <p className="mt-3 text-left leading-relaxed">
+                Meeting in a <b className="text-ink">desktop app</b> (Zoom, Teams)? Choose <b className="text-ink">Entire screen</b> and turn on{" "}
+                <b className="text-ink">“Also share system audio”</b> — Chrome can't record sound from a single app window.
+              </p>
               <p className="mt-5 flex items-center justify-center gap-1.5 text-xs text-muted">
                 <MonitorSpeaker size={14} /> Works best in Chrome or Edge on desktop.
               </p>
