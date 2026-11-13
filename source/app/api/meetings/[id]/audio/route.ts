@@ -11,6 +11,7 @@ import {
   type MediaKind,
 } from "@/lib/server/audio";
 import { getMeeting, updateMeeting } from "@/lib/server/db";
+import { requireSession } from "@/lib/auth";
 import { HttpError, errorResponse } from "@/lib/gemini";
 
 export const runtime = "nodejs";
@@ -33,6 +34,9 @@ const fields = (kind: MediaKind) => (kind === "video" ? ({ file: "videoFile", mi
 
 /** Saves the meeting's recording (or screen video) into the recordings folder, replacing any previous file. */
 export async function PUT(req: Request, ctx: Ctx) {
+  // This route skips the proxy (it would cut uploads at 10 MB), so it checks the login itself.
+  const denied = await requireSession(req);
+  if (denied) return denied;
   try {
     const meeting = await findMeeting(ctx);
     if (!req.body) throw new HttpError(400, "No file received.");
@@ -62,6 +66,8 @@ export async function PUT(req: Request, ctx: Ctx) {
 
 /** Streams the file, with Range support so the player can seek. */
 export async function GET(req: Request, ctx: Ctx) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
   try {
     const meeting = await findMeeting(ctx);
     const { file, mime } = fields(kindOf(req));

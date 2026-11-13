@@ -1,8 +1,11 @@
 # Render Blueprint: one Docker web service (ffmpeg included). Data lives in Turso.
+# The app's code is in source/; Render builds it from there.
 services:
   - type: web
     name: meeting-intelligence
     runtime: docker
+    dockerContext: ./source
+    dockerfilePath: ./source/Dockerfile
     plan: free
     region: oregon # same region as the Turso database (AWS us-west-2) for fast queries
     healthCheckPath: /api/health

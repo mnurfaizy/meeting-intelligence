@@ -17,6 +17,18 @@ export async function sessionToken() {
   return Array.from(new Uint8Array(signature), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Login check for routes the proxy skips. The proxy only passes the first 10 MB of a request
+ * body on, so routes that receive recordings check the session themselves instead.
+ * Returns a 401 response to send back, or null when the request may continue.
+ */
+export async function requireSession(req: Request) {
+  if (!authEnabled()) return null;
+  const cookie = req.headers.get("cookie")?.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`))?.[1] ?? "";
+  if (cookie && safeEqual(cookie, await sessionToken())) return null;
+  return Response.json({ error: "Please sign in again." }, { status: 401 });
+}
+
 /** Compares without stopping at the first difference, so timing reveals nothing. */
 export function safeEqual(a: string, b: string) {
   if (a.length !== b.length) return false;

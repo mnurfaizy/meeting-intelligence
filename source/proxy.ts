@@ -17,6 +17,10 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except the login page itself, sign-in/health endpoints and static assets.
-  matcher: ["/((?!login|api/login|api/health|_next/static|_next/image|icon\\.svg|favicon\\.ico).*)"],
+  // Everything except the login page itself, sign-in/health endpoints and static assets, and the
+  // routes that receive recordings: the proxy would cut their bodies at 10 MB, so those routes
+  // check the session themselves (requireSession).
+  matcher: [
+    "/((?!login|api/login|api/health|api/transcripts|api/meetings/[^/]+/audio|_next/static|_next/image|icon\\.svg|favicon\\.ico).*)",
+  ],
 };

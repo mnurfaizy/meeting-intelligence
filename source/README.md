@@ -37,7 +37,10 @@ Meetings saved by the earlier browser-only version are moved into the database a
 
 Requirements: Node.js 20+ and API keys for AssemblyAI, Gemini and Groq.
 
+The app lives in the `source/` folder of the repository (`render.yaml` stays at the root); run everything from there.
+
 ```bash
+cd source
 npm install
 cp .env.example .env.local   # then fill in ASSEMBLYAI_API_KEY, GEMINI_API_KEY and GROQ_API_KEY
 ```
@@ -99,7 +102,7 @@ components/                  sidebar, meeting view, recording view
 
 ## Deploying to Render
 
-The repo includes a `Dockerfile` (with ffmpeg) and a `render.yaml` Blueprint.
+The repo includes `source/Dockerfile` (with ffmpeg) and a `render.yaml` Blueprint at the repository root that builds from `source/`.
 
 1. In Render: **New → Blueprint**, connect this GitHub repo. Render reads `render.yaml`.
 2. Fill in the environment variables it asks for: `APP_PASSWORD` (the password to open the app), `ASSEMBLYAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` — the same values as your `.env.local`.

@@ -1,26 +1,4 @@
-node_modules/
-.next/
-.next-app/
-out/
-build/
-*.tsbuildinfo
-next-env.d.ts
+# Private keys and passwords kept next to the project — never commit.
+credential/
 
-.env
-.env*.local
-
-# Local SQLite database used when TURSO_DATABASE_URL is not set
-local.db*
-
-# Meeting recordings (default AUDIO_DIR)
-recordings/
-
-# Personal exports (chat logs etc.)
-exports/
-
-# Server output when running hidden (start-app-hidden.vbs)
-logs/
-
-.DS_Store
-npm-debug.log*
-.vercel
+# The app itself lives in source/ (see source/.gitignore for build output, .env.local, recordings…).
