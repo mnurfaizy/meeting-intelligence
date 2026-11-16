@@ -1,7 +1,8 @@
 "use client";
 
 import { assembleParts, deleteLocalAudio, deleteLocalVideo, getAudio, getChunks, getVideo, putAudio, putVideo } from "./db";
-import { ApiError, asTypedBlob, getMeeting, startServerTranscription, updateMeeting, uploadMeetingAudio } from "./store";
+import { folderReady, getStorageMode, readFromFolder } from "./deviceFolder";
+import { ApiError, asTypedBlob, getMeeting, saveToDeviceFolder, startServerTranscription, updateMeeting, uploadMeetingAudio } from "./store";
 import { transcriptToText } from "./format";
 import type { ChatMessage, Segment } from "./types";
 
@@ -98,10 +99,6 @@ function enqueue(meetingId: string, task: () => Promise<void>) {
 }
 
 /**
- * Makes sure the recording is in the server's recordings folder, moving it there from this
- * browser if needed. Returns false when neither has it.
- */
-/**
  * After a reload or crash mid-recording there is no complete file, only the second-by-second
  * parts: join them back into the full recording (and screen video) so nothing is lost.
  */
@@ -116,7 +113,12 @@ async function rebuildFromParts(meetingId: string) {
   }
 }
 
+/**
+ * Makes sure the recording is in the recordings folder, moving it there from this browser if
+ * needed. Returns false when neither has it.
+ */
 async function ensureAudioFile(meetingId: string) {
+  if ((await getStorageMode()) === "device") return ensureDeviceFile(meetingId);
   const meeting = await getMeeting(meetingId);
   if (!meeting?.audioFile) await rebuildFromParts(meetingId);
   // The screen video, if any, goes first: it only lives in this browser until it is saved.
@@ -135,12 +137,54 @@ async function ensureAudioFile(meetingId: string) {
   return true;
 }
 
+/**
+ * Same, for recordings kept in the folder on this computer. Without the folder (not chosen yet,
+ * or not allowed since the browser restarted) the recording simply stays in this browser and is
+ * still transcribed from there; it moves to the folder once the folder is ready.
+ */
+async function ensureDeviceFile(meetingId: string) {
+  const meeting = await getMeeting(meetingId);
+  if (!meeting) return false;
+  if (!meeting.audioFile) await rebuildFromParts(meetingId);
+  const canWrite = await folderReady();
+  const video = meeting.videoFile ? undefined : await getVideo(meetingId);
+  if (video && canWrite) {
+    await saveToDeviceFolder(meeting, video, "video");
+    await deleteLocalVideo(meetingId);
+  }
+  if (meeting.audioFile) return true;
+  const local = await getAudio(meetingId);
+  if (!local) return false;
+  if (canWrite) {
+    await saveToDeviceFolder(meeting, local);
+    await deleteLocalAudio(meetingId);
+  }
+  return true;
+}
+
+/** Sends the recording from this browser (or the folder on this computer) to AssemblyAI. */
+async function startDeviceTranscription(meetingId: string) {
+  const meeting = await getMeeting(meetingId);
+  const local = await getAudio(meetingId);
+  const blob = local ? asTypedBlob(local) : meeting?.audioFile ? await readFromFolder(meeting.audioFile) : undefined;
+  if (!blob) {
+    throw new Error(
+      meeting?.audioFile
+        ? `${meeting.audioFile} isn't in your recordings folder. Choose the folder that has it, then try again.`
+        : "No audio was saved for this meeting.",
+    );
+  }
+  const jobId = await apiStartTranscription(blob);
+  await updateMeeting(meetingId, { transcriptionJobId: jobId });
+  return jobId;
+}
+
 /** Transcribes the full recording file in one job, so speaker labels stay consistent throughout. */
 async function transcribeAudioFile(meetingId: string): Promise<JobResult> {
   let jobId = (await getMeeting(meetingId))?.transcriptionJobId;
   if (!jobId) {
     await updateMeeting(meetingId, { phase: "uploading" });
-    jobId = await startServerTranscription(meetingId);
+    jobId = (await getStorageMode()) === "device" ? await startDeviceTranscription(meetingId) : await startServerTranscription(meetingId);
   }
   await updateMeeting(meetingId, { phase: "transcribing" });
   return apiWaitForTranscript(jobId);

@@ -16,7 +16,7 @@ You can also **Import Recording** to transcribe an existing audio or video file 
 | Data | Stored in |
 | --- | --- |
 | Meetings, transcript lines, summaries, Assistant chats | **Turso** (libSQL) — or a local `local.db` SQLite file when Turso is not configured |
-| Audio files | Plain files in the **recordings folder** (`AUDIO_DIR`, default `./recordings`), e.g. `2026-10-29_1021_5542c12e.webm` |
+| Audio files | Plain files in the **recordings folder**, e.g. `2026-10-29_1021_5542c12e.webm` — on the server (`AUDIO_DIR`, default `./recordings`), or with `AUDIO_STORAGE=device` in a folder on your own computer that you choose in the sidebar |
 | Screen video (optional) | Same folder, e.g. `2026-10-29_1021_5542c12e-video.webm` |
 | Playback copies | `recordings/.playback/` — Opus/WebM copies of formats browsers can't play (WMA, AMR, …), made once with ffmpeg; originals are untouched |
 | 10-minute backup parts while recording | The browser (IndexedDB), deleted once the full recording is saved |
@@ -78,6 +78,7 @@ After pulling code changes, run `stop-app.cmd`, then `npm run app:build`, then s
 | `TURSO_DATABASE_URL` | `file:local.db` | Turso database URL (`libsql://…`). Empty uses a local SQLite file. |
 | `TURSO_AUTH_TOKEN` | — | Turso auth token. |
 | `AUDIO_DIR` | `./recordings` | Folder for recordings. A Google Drive for Desktop folder backs them up automatically. |
+| `AUDIO_STORAGE` | `server` | `device` keeps recordings in a folder on the user's computer instead (chosen in the sidebar; Chrome or Edge on desktop). The server then only passes audio on to AssemblyAI. |
 
 ## Project layout
 
@@ -110,6 +111,6 @@ The repo includes `source/Dockerfile` (with ffmpeg) and a `render.yaml` Blueprin
 
 With `APP_PASSWORD` set every page and API asks for the password (a 30-day session cookie); without it — e.g. on your own laptop — the app stays open.
 
-**Free plan notes:** the service sleeps after 15 minutes without visits (the next visit takes ~1 minute to wake it), and its disk is temporary, so files in `AUDIO_DIR` are lost on restart. Transcripts, summaries and chats are safe in Turso. To keep recordings on the server, use a paid plan with a disk (see the comment in `render.yaml`).
+**Free plan notes:** the service sleeps after 15 minutes without visits (the next visit takes ~1 minute to wake it), and its disk is temporary. So `render.yaml` sets `AUDIO_STORAGE=device`: recordings are saved by the browser into a folder on your computer (choose it under **Recordings folder** in the sidebar — your old `recordings` folder or a Google Drive folder works), and play from there. Until a folder is chosen, new recordings wait safely in the browser. Transcripts, summaries and chats are in Turso. Formats browsers can't play (WMA, AMR) only play with server storage. To keep recordings on the server instead, use a paid plan with a disk (see the comment in `render.yaml`).
 
 Avoid Vercel: it limits request bodies to 4.5 MB, smaller than most recordings.

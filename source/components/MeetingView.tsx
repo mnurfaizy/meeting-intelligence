@@ -1,9 +1,10 @@
 "use client";
 
-import { Download, Pencil, RefreshCw, Sparkles, Trash2, TriangleAlert } from "lucide-react";
+import { Download, FolderOpen, Pencil, RefreshCw, Sparkles, Trash2, TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import { fmtDateTime, fmtDuration } from "@/lib/format";
-import { useMediaSource } from "@/lib/hooks";
+import { allowFolder, chooseFolder, useFolderState, useStorageMode } from "@/lib/deviceFolder";
+import { useMediaSource, type MediaState } from "@/lib/hooks";
 import { regenerateSummary } from "@/lib/pipeline";
 import { deleteMeeting, updateMeeting } from "@/lib/store";
 import type { Meeting } from "@/lib/types";
@@ -75,6 +76,7 @@ function MeetingHeader({ meeting, onDeleted }: { meeting: Meeting; onDeleted: ()
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(meeting.title);
   const [confirming, setConfirming] = useState(false);
+  const filesStay = useStorageMode() === "device";
 
   const save = async () => {
     setEditing(false);
@@ -125,7 +127,16 @@ function MeetingHeader({ meeting, onDeleted }: { meeting: Meeting; onDeleted: ()
           title="Delete meeting"
           message={
             <>
-              Delete <b className="text-ink">{meeting.title || "this meeting"}</b> with its transcript, summary, chat and recording files? This cannot be undone.
+              {filesStay ? (
+                <>
+                  Delete <b className="text-ink">{meeting.title || "this meeting"}</b> with its transcript, summary and chat? This cannot be undone. Its recording files
+                  stay in your recordings folder.
+                </>
+              ) : (
+                <>
+                  Delete <b className="text-ink">{meeting.title || "this meeting"}</b> with its transcript, summary, chat and recording files? This cannot be undone.
+                </>
+              )}
             </>
           }
           onClose={() => setConfirming(false)}
@@ -182,33 +193,40 @@ function fixWebmDuration(e: React.SyntheticEvent<HTMLMediaElement>) {
 }
 
 function MediaCard({ meeting, mediaRef }: { meeting: Meeting; mediaRef: React.RefObject<HTMLMediaElement | null> }) {
-  const source = useMediaSource(meeting);
+  const media = useMediaSource(meeting);
   const files = [meeting.videoFile, meeting.audioFile].filter(Boolean);
+  const isVideo = media.status === "ready" ? media.video : Boolean(meeting.videoFile);
   return (
     <section className="card p-4">
-      <h2 className="mb-3 px-1 text-base font-bold">{source?.video ? "Video" : "Audio"}</h2>
-      {source?.video ? (
+      <h2 className="mb-3 px-1 text-base font-bold">{isVideo ? "Video" : "Audio"}</h2>
+      {media.status === "ready" && media.video ? (
         <video
           ref={mediaRef as React.RefObject<HTMLVideoElement | null>}
-          src={source.url}
+          src={media.url}
           controls
           preload="metadata"
           className="aspect-video w-full rounded-[var(--radius-md)] bg-black"
           onLoadedMetadata={fixWebmDuration}
         />
-      ) : source ? (
+      ) : media.status === "ready" ? (
         <audio
           ref={mediaRef as React.RefObject<HTMLAudioElement | null>}
-          src={source.url}
+          src={media.url}
           controls
           preload="metadata"
           className="w-full"
           onLoadedMetadata={fixWebmDuration}
         />
-      ) : (
+      ) : media.status === "loading" ? (
+        <p className="flex items-center gap-2 rounded-[var(--radius-md)] bg-surface-muted px-4 py-3 text-[13px] text-ink-2">
+          <Spinner size={14} /> Loading the recording…
+        </p>
+      ) : media.status === "none" ? (
         <p className="rounded-[var(--radius-md)] bg-surface-muted px-4 py-3 text-[13px] text-ink-2">
           {meeting.status === "recording" ? "The recording will be available when it stops." : "No recording was saved for this meeting."}
         </p>
+      ) : (
+        "file" in media && <FolderNotice media={media} />
       )}
       {files.map((file) => (
         <p key={file} className="mt-2 truncate px-1 text-xs text-muted" title="File in the recordings folder">
@@ -216,5 +234,37 @@ function MediaCard({ meeting, mediaRef }: { meeting: Meeting; mediaRef: React.Re
         </p>
       ))}
     </section>
+  );
+}
+
+/** Why a recording kept on this computer can't play yet, with the one click that fixes it. */
+function FolderNotice({ media }: { media: Extract<MediaState, { file: string }> }) {
+  const folder = useFolderState();
+  const [error, setError] = useState<string | null>(null);
+  const run = (action: () => Promise<unknown>) => () => {
+    setError(null);
+    action().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+  };
+  const text = {
+    unsupported: "This recording is kept in a folder on your computer. Open the app in Chrome or Edge on that computer to play it.",
+    "needs-folder": "This recording is kept in a folder on your computer. Choose your recordings folder to play it.",
+    "needs-access": `Allow access to your recordings folder${folder?.name ? ` (${folder.name})` : ""} to play this recording.`,
+    missing: `This file isn't in your recordings folder${folder?.name ? ` (${folder.name})` : ""}. If it's in another folder, choose that one.`,
+  }[media.status];
+  return (
+    <div className="flex flex-col items-start gap-3 rounded-[var(--radius-md)] bg-surface-muted px-4 py-3 text-[13px] text-ink-2">
+      <p>{text}</p>
+      {media.status === "needs-access" && (
+        <button type="button" onClick={run(allowFolder)} className="btn btn-primary btn-sm">
+          <FolderOpen size={14} /> Allow access
+        </button>
+      )}
+      {(media.status === "needs-folder" || media.status === "missing") && (
+        <button type="button" onClick={run(chooseFolder)} className={`btn btn-sm ${media.status === "missing" ? "btn-outline" : "btn-primary"}`}>
+          <FolderOpen size={14} /> {media.status === "missing" ? "Choose another folder" : "Choose folder"}
+        </button>
+      )}
+      {error && <p className="text-danger">{error}</p>}
+    </div>
   );
 }

@@ -17,6 +17,8 @@ interface LocalDB extends DBSchema {
   video: { key: string; value: AudioRecord };
   /** Second-by-second parts of a recording in progress; joined, they rebuild it after a crash. */
   parts: { key: string; value: RecordingPart; indexes: { byMeeting: string } };
+  /** Small browser-only settings, e.g. the handle of the recordings folder on this computer. */
+  settings: { key: string; value: unknown };
 }
 
 export type RecordingPart = { id: string; meetingId: string; kind: "audio" | "video"; seq: number; blob: Blob; mimeType: string };
@@ -24,7 +26,7 @@ export type RecordingPart = { id: string; meetingId: string; kind: "audio" | "vi
 let dbPromise: Promise<IDBPDatabase<LocalDB>> | null = null;
 
 function db() {
-  dbPromise ??= openDB<LocalDB>("meeting-intelligence", 3, {
+  dbPromise ??= openDB<LocalDB>("meeting-intelligence", 4, {
     upgrade(d, oldVersion) {
       if (oldVersion < 1) {
         d.createObjectStore("meetings", { keyPath: "id" });
@@ -33,6 +35,7 @@ function db() {
       }
       if (oldVersion < 2) d.createObjectStore("video", { keyPath: "meetingId" });
       if (oldVersion < 3) d.createObjectStore("parts", { keyPath: "id" }).createIndex("byMeeting", "meetingId");
+      if (oldVersion < 4) d.createObjectStore("settings");
     },
     // Another tab opened a newer version: step aside so its upgrade is not stuck behind us.
     blocking(_current, _next, event) {
@@ -120,4 +123,12 @@ export async function saveBrowserMeeting(meeting: Meeting) {
 
 export async function removeLegacyMeeting(id: string) {
   await (await db()).delete("meetings", id);
+}
+
+export async function getSetting<T>(key: string) {
+  return (await (await db()).get("settings", key)) as T | undefined;
+}
+
+export async function putSetting(key: string, value: unknown) {
+  await (await db()).put("settings", value, key);
 }

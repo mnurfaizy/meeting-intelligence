@@ -1,6 +1,8 @@
 "use client";
 
-import { deleteLocalAudio, deleteLocalVideo, getAudio, getLegacyMeetings, removeLegacyMeeting } from "./db";
+import { deleteLocalAudio, deleteLocalVideo, getAudio, getLegacyMeetings, getVideo, removeLegacyMeeting } from "./db";
+import { folderReady, getStorageMode, writeToFolder } from "./deviceFolder";
+import { extensionFor, fileNameFor, type MediaKind } from "./fileNames";
 import { emitChange } from "./events";
 import type { AudioRecord, ChatMessage, Meeting, MeetingListItem } from "./types";
 
@@ -88,6 +90,18 @@ export async function uploadMeetingAudio(id: string, blob: Blob, fileName?: stri
   return (await res.json()) as Meeting;
 }
 
+/**
+ * Writes a recording kept in this browser into the recordings folder on this computer, then
+ * records its file name. The caller deletes the browser's copy afterwards.
+ */
+export async function saveToDeviceFolder(meeting: Pick<Meeting, "id" | "createdAt">, record: AudioRecord, kind: MediaKind = "audio") {
+  const blob = asTypedBlob(record);
+  const original = record.blob instanceof File ? record.blob.name : undefined;
+  const name = fileNameFor(meeting.id, meeting.createdAt, extensionFor(blob.type, original), kind);
+  await writeToFolder(name, blob);
+  return updateMeeting(meeting.id, kind === "video" ? { videoFile: name, videoMime: blob.type } : { audioFile: name, audioMime: blob.type });
+}
+
 /** Starts transcription of the meeting's saved audio file; returns the job id. */
 export async function startServerTranscription(id: string) {
   return (await request<{ id: string }>(`/api/meetings/${id}/transcription`, { method: "POST" })).id;
@@ -120,16 +134,27 @@ export async function migrateBrowserMeetings() {
 }
 
 /**
- * Moves recordings that are still stored in this browser into the recordings folder.
+ * Moves recordings that are still stored in this browser into the recordings folder (the
+ * server's, or the one on this computer once it is chosen and allowed).
  * Meetings that are mid-transcription are skipped; finalizeMeeting moves those itself.
  */
 export async function moveBrowserAudioToFolder(meetings: MeetingListItem[]) {
+  const device = (await getStorageMode()) === "device";
+  if (device && !(await folderReady())) return 0;
   let moved = 0;
   for (const m of meetings) {
-    if (m.audioFile || m.status === "recording" || m.status === "processing") continue;
+    if (m.status === "recording" || m.status === "processing") continue;
+    const video = device && !m.videoFile ? await getVideo(m.id) : undefined;
+    if (video) {
+      await saveToDeviceFolder(m, video, "video");
+      await deleteLocalVideo(m.id);
+      moved++;
+    }
+    if (m.audioFile) continue;
     const local = await getAudio(m.id);
     if (!local) continue;
-    await uploadMeetingAudio(m.id, asTypedBlob(local), local.blob instanceof File ? local.blob.name : undefined);
+    if (device) await saveToDeviceFolder(m, local);
+    else await uploadMeetingAudio(m.id, asTypedBlob(local), local.blob instanceof File ? local.blob.name : undefined);
     await deleteLocalAudio(m.id);
     moved++;
   }

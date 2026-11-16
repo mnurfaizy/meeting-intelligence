@@ -1,7 +1,8 @@
 "use client";
 
-import { AudioLines, Clock, MessageSquare, Mic, PanelLeftClose, Search, Square, TriangleAlert, Upload } from "lucide-react";
+import { AudioLines, Clock, FolderOpen, MessageSquare, Mic, PanelLeftClose, Search, Square, TriangleAlert, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { allowFolder, chooseFolder, useFolderState, useStorageMode } from "@/lib/deviceFolder";
 import { useMicrophones } from "@/lib/devices";
 import { fmtClock, fmtDateGroup, fmtTime } from "@/lib/format";
 import type { MeetingListItem } from "@/lib/types";
@@ -103,6 +104,7 @@ export function Sidebar(props: Props) {
             </span>
             <Toggle checked={props.includeVideo} onChange={props.onIncludeVideoChange} disabled={!!recording} />
           </label>
+          <RecordingsFolder />
         </div>
 
         <button type="button" onClick={() => fileInput.current?.click()} disabled={!!recording} className="btn btn-outline btn-block">
@@ -231,4 +233,51 @@ function ElapsedClock({ elapsed }: { elapsed: () => number }) {
     return () => clearInterval(id);
   }, []);
   return <span className="tabular-nums opacity-90">{fmtClock(elapsed() / 1000)}</span>;
+}
+
+/** Where recordings go when they are kept on this computer (only shown in that mode). */
+function RecordingsFolder() {
+  const mode = useStorageMode();
+  const folder = useFolderState();
+  const [error, setError] = useState<string | null>(null);
+  if (mode !== "device" || !folder) return null;
+  const run = (action: () => Promise<unknown>) => () => {
+    setError(null);
+    action().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+  };
+  const { access, name } = folder;
+  const detail =
+    access === "unsupported"
+      ? "Needs Chrome or Edge on a computer"
+      : access === "none"
+        ? "Choose where recordings are saved"
+        : access === "prompt"
+          ? `${name} · click Allow to use it`
+          : name;
+  return (
+    <div className="border-t border-line px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="min-w-0">
+          <span className="flex items-center gap-1.5 font-bold">
+            Recordings folder
+            {(access === "none" || access === "prompt") && <TriangleAlert size={14} className="text-warning" />}
+          </span>
+          <span className="block truncate text-xs text-ink-2" title={name}>
+            {detail}
+          </span>
+        </span>
+        {access === "prompt" ? (
+          <button type="button" onClick={run(allowFolder)} className="btn btn-primary btn-sm shrink-0">
+            Allow
+          </button>
+        ) : access !== "unsupported" ? (
+          <button type="button" onClick={run(chooseFolder)} className={`btn btn-sm shrink-0 ${access === "none" ? "btn-primary" : "btn-outline"}`}>
+            <FolderOpen size={14} />
+            {access === "none" ? "Choose" : "Change"}
+          </button>
+        ) : null}
+      </div>
+      {error && <p className="mt-1 text-xs text-danger">{error}</p>}
+    </div>
+  );
 }

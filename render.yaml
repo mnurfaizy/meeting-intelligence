@@ -24,8 +24,11 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-2.5-flash
-    # On the free plan the server's disk is temporary (wiped on restart/sleep/deploy), so files in
-    # AUDIO_DIR do not last. To keep recordings on the server, switch to a paid plan and add a disk:
+      # The free plan's disk is wiped on every restart/sleep/deploy, so recordings are kept in a folder
+      # on your own computer instead (the browser saves them there; Chrome or Edge on desktop).
+      - key: AUDIO_STORAGE
+        value: device
+    # To keep recordings on the server instead, switch to a paid plan, add a disk and remove AUDIO_STORAGE:
     # plan: starter
     # disk:
     #   name: recordings

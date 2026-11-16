@@ -7,6 +7,7 @@ import { RecordingView } from "@/components/RecordingView";
 import { Sidebar } from "@/components/Sidebar";
 import { EmptyState, Spinner } from "@/components/ui";
 import { getAudio, hasLocalAudio, putAudio } from "@/lib/db";
+import { FOLDER_EVENT } from "@/lib/deviceFolder";
 import { useSavedMicrophone } from "@/lib/devices";
 import { useMeeting, useMeetings } from "@/lib/hooks";
 import { finalizeMeeting, isMeetingBusy } from "@/lib/pipeline";
@@ -81,6 +82,17 @@ export default function Home() {
       window.removeEventListener("online", retry);
     };
   }, [resumeInterrupted]);
+
+  // Once the recordings folder on this computer is chosen or allowed again, move recordings that
+  // waited in the browser into it.
+  useEffect(() => {
+    const move = () =>
+      listMeetings()
+        .then((list) => moveBrowserAudioToFolder(list))
+        .catch((err) => showError(`Could not save recordings to your folder: ${err instanceof Error ? err.message : err}`));
+    window.addEventListener(FOLDER_EVENT, move);
+    return () => window.removeEventListener(FOLDER_EVENT, move);
+  }, [showError]);
 
   const startRecording = async () => {
     setStarting(true);
